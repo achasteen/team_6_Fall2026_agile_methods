@@ -30,9 +30,22 @@ h1 {
     font-family: 'Arial Black', sans-serif;
 }
 
-label {
+[data-testid="stVerticalBlock"] p,
+[data-testid="stVerticalBlock"] span,
+[data-testid="stVerticalBlock"] label,
+[data-testid="stVerticalBlock"] li,
+[data-testid="stVerticalBlock"] h1,
+[data-testid="stVerticalBlock"] h2,
+[data-testid="stVerticalBlock"] h3,
+[data-testid="stVerticalBlock"] h4 {
     color: black !important;
     font-weight: bold;
+}
+
+[data-testid="stVerticalBlock"] button {
+    color: black !important;
+    background-color: white !important;
+    border: 1px solid #999 !important;
 }
 </style>
 """
@@ -64,6 +77,14 @@ if "users_db" not in st.session_state:
 # Track authentication state
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
+
+# In-memory store for submitted requests
+if "requests_db" not in st.session_state:
+    st.session_state.requests_db = []
+
+# Which sub-view of the logged-in dashboard is showing
+if "dashboard_view" not in st.session_state:
+    st.session_state.dashboard_view = "menu"
 
 # Date ranges for DOB dropdowns (1900 to 2026)
 CURRENT_YEAR = datetime.date.today().year
@@ -99,20 +120,121 @@ if st.session_state.logged_in:
     if st.button("Log Out"):
         st.session_state.logged_in = False
         st.session_state.current_user = None
+        st.session_state.dashboard_view = "menu"
         st.rerun()
 
     st.divider()
 
-    st.write("### Choose an Action")
-    col1, col2 = st.columns(2)
+    if st.session_state.dashboard_view == "menu":
+        st.write("### Choose an Action")
 
-    with col1:
-        if st.button("Start New Request", use_container_width=True):
-            st.info("Start New Request workflow selected.")
+        if user_info["role"] == "User":
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Start New Request", use_container_width=True):
+                    st.session_state.dashboard_view = "new_request_form"
+                    st.rerun()
+            with col2:
+                if st.button("My Requests", use_container_width=True):
+                    st.session_state.dashboard_view = "my_requests"
+                    st.rerun()
+        else:  # Samaritan
+            if st.button("Accept Existing Request", use_container_width=True):
+                st.session_state.dashboard_view = "accept_request_list"
+                st.rerun()
 
-    with col2:
-        if st.button("Accept Existing Request", use_container_width=True):
-            st.info("Accept Existing Request workflow selected.")
+    elif st.session_state.dashboard_view == "new_request_form":
+        if user_info["role"] != "User":
+            st.session_state.dashboard_view = "menu"
+            st.rerun()
+        else:
+            st.write("### Start New Request")
+            st.text_input("Name", key="nr_name")
+            st.text_input("Zip", key="nr_zip")
+            st.text_area("Description", key="nr_description")
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("Cancel"):
+                    st.session_state.dashboard_view = "menu"
+                    st.rerun()
+            with col_b:
+                if st.button("Submit Request"):
+                    if st.session_state.nr_name and st.session_state.nr_zip and st.session_state.nr_description:
+                        st.session_state.requests_db.append({
+                            "name": st.session_state.nr_name,
+                            "zip": st.session_state.nr_zip,
+                            "description": st.session_state.nr_description,
+                            "requested_by": f"{user_info['first_name']} {user_info['last_name']}",
+                            "requested_by_id": user_info["user_id"],
+                            "status": "pending",
+                            "accepted_by": None,
+                        })
+                        st.session_state.dashboard_view = "menu"
+                        st.success("Request submitted!")
+                        st.rerun()
+                    else:
+                        st.error("Please fill in all fields.")
+
+    elif st.session_state.dashboard_view == "my_requests":
+        if user_info["role"] != "User":
+            st.session_state.dashboard_view = "menu"
+            st.rerun()
+        else:
+            st.write("### My Requests")
+
+            my_requests = [
+                r for r in st.session_state.requests_db
+                if r["requested_by_id"] == user_info["user_id"]
+            ]
+
+            if not my_requests:
+                st.write("You haven't submitted any requests yet.")
+            else:
+                for req in my_requests:
+                    with st.container():
+                        st.write(f"**Name:** {req['name']}")
+                        st.write(f"**Zip:** {req['zip']}")
+                        st.write(f"**Description:** {req['description']}")
+                        st.write(f"**Status:** {req['status'].capitalize()}")
+                        if req["status"] == "accepted":
+                            st.write(f"**Accepted by:** {req['accepted_by']}")
+                        st.divider()
+
+            if st.button("Back"):
+                st.session_state.dashboard_view = "menu"
+                st.rerun()
+
+    elif st.session_state.dashboard_view == "accept_request_list":
+        if user_info["role"] != "Samaritan":
+            st.session_state.dashboard_view = "menu"
+            st.rerun()
+        else:
+            st.write("### Pending Requests")
+
+            pending_requests = [
+                (idx, r) for idx, r in enumerate(st.session_state.requests_db)
+                if r["status"] == "pending" and r["requested_by_id"] != user_info["user_id"]
+            ]
+
+            if not pending_requests:
+                st.write("No pending requests right now.")
+            else:
+                for idx, req in pending_requests:
+                    with st.container():
+                        st.write(f"**Name:** {req['name']}")
+                        st.write(f"**Zip:** {req['zip']}")
+                        st.write(f"**Description:** {req['description']}")
+                        if st.button("Accept", key=f"accept_{idx}"):
+                            req["status"] = "accepted"
+                            req["accepted_by"] = f"{user_info['first_name']} {user_info['last_name']}"
+                            st.success("Request accepted!")
+                            st.rerun()
+                        st.divider()
+
+            if st.button("Back"):
+                st.session_state.dashboard_view = "menu"
+                st.rerun()
 
 # ---------------------------------------------------------
 # LOGGED-OUT VIEW (LOGIN OR REGISTER)
@@ -137,7 +259,7 @@ else:
             users = st.session_state.users_db
             if login_id in users and users[login_id]["password"] == login_pass:
                 st.session_state.logged_in = True
-                st.session_state.current_user = users[login_id]
+                st.session_state.current_user = {**users[login_id], "user_id": login_id}
                 st.rerun()
             else:
                 st.error("Invalid User ID or Password.")

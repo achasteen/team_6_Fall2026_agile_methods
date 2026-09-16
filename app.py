@@ -1,5 +1,7 @@
 import datetime
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
+import pandas as pd
 
 # Page config
 st.set_page_config(page_title="Samaritan Services", layout="centered")
@@ -52,6 +54,24 @@ h1 {
 st.markdown(page_bg, unsafe_allow_html=True)
 
 st.title("Samaritan Services")
+conn = st.connection("gsheets", type=GSheetsConnection)
+# conn = st.connection("gsheets", type=GSheetsConnection)
+
+# example usage
+# if st.button("Test write to sheet"):
+#     # Read existing data (if the sheet has headers already)
+#     existing_df = conn.read(worksheet="Sheet1")
+#
+#     # Create a new row
+#     new_row = pd.DataFrame([{"message": "hello world"}])
+#
+#     # Append it
+#     updated_df = pd.concat([existing_df, new_row], ignore_index=True)
+#     conn.update(worksheet="Sheet1", data=updated_df)
+#
+#     st.success("Wrote 'hello world' to the sheet!")
+#     st.dataframe(updated_df)
+
 
 # Initialize Demo Accounts Database in Session State
 if "users_db" not in st.session_state:
@@ -161,15 +181,31 @@ if st.session_state.logged_in:
             with col_b:
                 if st.button("Submit Request"):
                     if st.session_state.nr_name and st.session_state.nr_zip and st.session_state.nr_description:
-                        st.session_state.requests_db.append({
-                            "name": st.session_state.nr_name,
+                        req_existing_df = conn.read(worksheet="Requests", ttl=0)
+                        request_id = 0
+                        if request_id in req_existing_df['request_id'].values:
+                            while request_id in req_existing_df['request_id'].values:
+                                request_id += 1
+                        req_new_row = pd.DataFrame([{
+                            "request_id": request_id,
+                            "request_name": st.session_state.nr_name,
                             "zip": st.session_state.nr_zip,
                             "description": st.session_state.nr_description,
-                            "requested_by": f"{user_info['first_name']} {user_info['last_name']}",
+                            "requested_by_name": f"{user_info['first_name']} {user_info['last_name']}",
                             "requested_by_id": user_info["user_id"],
-                            "status": "pending",
-                            "accepted_by": None,
-                        })
+                            "status": "pending"
+                        }])
+                        req_updated_df = pd.concat([req_existing_df, req_new_row], ignore_index=True)
+                        conn.update(worksheet="Requests", data=req_updated_df)
+                        # st.session_state.requests_db.append({
+                        #     "name": st.session_state.nr_name,
+                        #     "zip": st.session_state.nr_zip,
+                        #     "description": st.session_state.nr_description,
+                        #     "requested_by": f"{user_info['first_name']} {user_info['last_name']}",
+                        #     "requested_by_id": user_info["user_id"],
+                        #     "status": "pending",
+                        #     "accepted_by": None,
+                        # })
                         st.session_state.dashboard_view = "menu"
                         st.success("Request submitted!")
                         st.rerun()
@@ -182,23 +218,24 @@ if st.session_state.logged_in:
             st.rerun()
         else:
             st.write("### My Requests")
+            all_requests_df = conn.read(worksheet="Requests", ttl=0)
+            my_requests = all_requests_df[all_requests_df['requested_by_id'] == user_info["user_id"]].copy()
+            # my_requests = [
+            #     r for r in st.session_state.requests_db
+            #     if r["requested_by_id"] == user_info["user_id"]
+            # ]
 
-            my_requests = [
-                r for r in st.session_state.requests_db
-                if r["requested_by_id"] == user_info["user_id"]
-            ]
-
-            if not my_requests:
+            if len(my_requests) < 1:
                 st.write("You haven't submitted any requests yet.")
             else:
-                for req in my_requests:
+                for idx, row in my_requests.iterrows():
                     with st.container():
-                        st.write(f"**Name:** {req['name']}")
-                        st.write(f"**Zip:** {req['zip']}")
-                        st.write(f"**Description:** {req['description']}")
-                        st.write(f"**Status:** {req['status'].capitalize()}")
-                        if req["status"] == "accepted":
-                            st.write(f"**Accepted by:** {req['accepted_by']}")
+                        st.write(f"**Name:** {row['request_name']}")
+                        st.write(f"**Zip:** {row['zip']}")
+                        st.write(f"**Description:** {row['description']}")
+                        st.write(f"**Status:** {row['status'].capitalize()}")
+                        if row["status"] == "accepted":
+                            st.write(f"**Accepted by:** {row['accepted_by_name']}")
                         st.divider()
 
             if st.button("Back"):
@@ -211,26 +248,43 @@ if st.session_state.logged_in:
             st.rerun()
         else:
             st.write("### Pending Requests")
+            all_requests_df = conn.read(worksheet="Requests", ttl=0)
+            all_requests_df['accepted_by_name'] = all_requests_df['accepted_by_name'].astype(str)
+            all_requests_df['accepted_by_id'] = all_requests_df['accepted_by_id'].astype(str)
+            pending_requests = all_requests_df[(all_requests_df['status'] == "pending") & (all_requests_df['requested_by_id'] != user_info["user_id"])].copy()
+            # pending_requests = [
+            #     (idx, r) for idx, r in enumerate(st.session_state.requests_db)
+            #     if r["status"] == "pending" and r["requested_by_id"] != user_info["user_id"]
+            # ]
 
-            pending_requests = [
-                (idx, r) for idx, r in enumerate(st.session_state.requests_db)
-                if r["status"] == "pending" and r["requested_by_id"] != user_info["user_id"]
-            ]
-
-            if not pending_requests:
+            if len(pending_requests) < 1:
                 st.write("No pending requests right now.")
             else:
-                for idx, req in pending_requests:
+                for idx, row in pending_requests.iterrows():
                     with st.container():
-                        st.write(f"**Name:** {req['name']}")
-                        st.write(f"**Zip:** {req['zip']}")
-                        st.write(f"**Description:** {req['description']}")
+                        st.write(f"**Name:** {row['request_name']}")
+                        st.write(f"**Zip:** {row['zip']}")
+                        st.write(f"**Description:** {row['description']}")
                         if st.button("Accept", key=f"accept_{idx}"):
-                            req["status"] = "accepted"
-                            req["accepted_by"] = f"{user_info['first_name']} {user_info['last_name']}"
+                            all_requests_df.at[idx,'status'] = 'accepted'
+                            all_requests_df.at[idx, 'accepted_by_name'] = f"{user_info['first_name']} {user_info['last_name']}"
+                            all_requests_df.at[idx, 'accepted_by_id'] = user_info['user_id']
+                            conn.update(worksheet="Requests", data=all_requests_df)
                             st.success("Request accepted!")
                             st.rerun()
                         st.divider()
+
+                # for idx, req in pending_requests:
+                #     with st.container():
+                #         st.write(f"**Name:** {req['name']}")
+                #         st.write(f"**Zip:** {req['zip']}")
+                #         st.write(f"**Description:** {req['description']}")
+                #         if st.button("Accept", key=f"accept_{idx}"):
+                #             req["status"] = "accepted"
+                #             req["accepted_by"] = f"{user_info['first_name']} {user_info['last_name']}"
+                #             st.success("Request accepted!")
+                #             st.rerun()
+                #         st.divider()
 
             if st.button("Back"):
                 st.session_state.dashboard_view = "menu"
@@ -256,18 +310,28 @@ else:
         login_pass = st.text_input("Password", type="password", key="login_password")
 
         if st.button("Log In"):
-            users = st.session_state.users_db
-            if login_id in users and users[login_id]["password"] == login_pass:
-                st.session_state.logged_in = True
-                st.session_state.current_user = {**users[login_id], "user_id": login_id}
-                st.rerun()
+            # users = st.session_state.users_db
+            user_existing_df = conn.read(worksheet="Users", ttl=0)
+            if login_id in user_existing_df['user_id'].values:
+                stored_pass = user_existing_df.loc[user_existing_df['user_id'] == login_id,'password'].values[0]
+                if login_pass == stored_pass:
+                    st.session_state.logged_in = True
+                    st.session_state.current_user = {
+                    "first_name":user_existing_df.loc[user_existing_df['user_id'] == login_id,'first_name'].values[0],
+                    "last_name":user_existing_df.loc[user_existing_df['user_id'] == login_id,'last_name'].values[0],
+                    "role":user_existing_df.loc[user_existing_df['user_id'] == login_id,'role'].values[0],
+                    "user_id": login_id}
+                    st.rerun()
+                else:
+                    st.error("Incorrect Password.")
             else:
-                st.error("Invalid User ID or Password.")
+                st.error("Invalid User ID.")
 
     # SINGLE UNIFIED REGISTER PAGE
     elif page_action == "Register":
         st.subheader("Account Registration")
         st.caption("Please fill out the information below to create your profile.")
+        st.caption("This is for educational purposes only, please don't use real information.")
 
         # Single Role Selector Field
         role = st.selectbox(
@@ -295,28 +359,50 @@ else:
         # Dynamic Fields based on Selected Role
         if role == "Samaritan":
             services = st.text_area("Services you would like to offer", key="reg_services")
-            uploaded_file = st.file_uploader(
-                "Upload a picture of driver's license",
-                type=["jpeg", "jpg", "png"],
-                key="reg_dl_pic"
-            )
+            # uploaded_file = st.file_uploader(
+            #     "Upload a picture of driver's license",
+            #     type=["jpeg", "jpg", "png"],
+            #     key="reg_dl_pic"
+            # )
         else:
-            uploaded_file = st.file_uploader(
-                "Upload any form of ID to verify information",
-                type=["jpeg", "jpg", "png", "pdf"],
-                key="reg_user_id_doc"
-            )
+            services = ""
+            # uploaded_file = st.file_uploader(
+            #     "Upload any form of ID to verify information",
+            #     type=["jpeg", "jpg", "png", "pdf"],
+            #     key="reg_user_id_doc"
+            # )
 
         if st.button("Submit Registration"):
-            if reg_user_id and reg_password:
-                st.session_state.users_db[reg_user_id] = {
-                    "password": reg_password,
-                    "role": role,
-                    "first_name": first_name or role,
-                    "last_name": last_name or "User",
-                    "city": city,
-                    "state": state,
-                }
-                st.success(f"Registered successfully as {role}! You can now log in.")
+            # Read existing data (if the sheet has headers already)
+            user_existing_df = conn.read(worksheet="Users", ttl=0)
+            if reg_user_id not in user_existing_df["user_id"].values:
+                if reg_user_id and reg_password:
+                    # Create a new row
+                    user_new_row = pd.DataFrame([{
+                        "user_id": reg_user_id,
+                        "password": reg_password,
+                        "role": role,
+                        "first_name": first_name or role,
+                        "last_name": last_name or "User",
+                        "city": city,
+                        "state": state,
+                        "zip": zip_code,
+                        "services": services
+                    }])
+
+                    # Append it
+                    user_updated_df = pd.concat([user_existing_df, user_new_row], ignore_index=True)
+                    conn.update(worksheet="Users", data=user_updated_df)
+                    # st.session_state.users_db[reg_user_id] = {
+                    #     "password": reg_password,
+                    #     "role": role,
+                    #     "first_name": first_name or role,
+                    #     "last_name": last_name or "User",
+                    #     "city": city,
+                    #     "state": state,
+                    # }
+                    st.success(f"Registered successfully as {role}! You can now log in.")
+                else:
+                    st.error("Please fill in both User ID and Password.")
             else:
-                st.error("Please fill in both User ID and Password.")
+                st.error(f"User ID: {reg_user_id} is already taken. Please choose another one.")

@@ -83,7 +83,7 @@ def render_dob_selector(key_prefix):
     return f"{year}-{month}-{day}"
 
 # ---------------------------------------------------------
-# GEOGRAPHIC RADIUS HELPER (pypostalcode + Haversine)
+# GEOGRAPHIC RADIUS HELPER
 # ---------------------------------------------------------
 def get_zip_distance(zip1, zip2):
     """Calculates straight-line distance in miles between two US zip codes."""
@@ -111,7 +111,7 @@ def get_zip_distance(zip1, zip2):
         return None
 
 # ---------------------------------------------------------
-# NOTIFICATION HELPERS
+# NOTIFICATION SYSTEM HELPERS
 # ---------------------------------------------------------
 def send_browser_push(title, body):
     """Triggers a native browser push notification via JavaScript."""
@@ -168,7 +168,7 @@ def render_notification_inbox(user_id):
     user_notifs = notifs_df[notifs_df["recipient_user_id"].astype(str) == str(user_id)].copy()
 
     if user_notifs.empty:
-        st.info("You have no notifications.")
+        st.info("You have no notifications right now.")
         return
 
     user_notifs = user_notifs.sort_values(by="created_at", ascending=False)
@@ -202,9 +202,10 @@ def render_notification_inbox(user_id):
 # ---------------------------------------------------------
 if st.session_state.logged_in:
     user_info = st.session_state.current_user
-    
-    st.subheader(f"Welcome, {user_info['first_name']} {user_info['last_name']}")
-    st.caption(f"Role: {user_info['role']} | User ID: {user_info['user_id']} | Zip: {user_info.get('zip', 'N/A')}")
+    user_role = str(user_info.get("role", "User"))
+
+    st.subheader(f"Welcome, {user_info['first_name']} {user_info['last_name']} ({user_role})")
+    st.caption(f"User ID: {user_info['user_id']} | Zip Code: {user_info.get('zip', 'N/A')}")
 
     if st.button("Log Out"):
         st.session_state.logged_in = False
@@ -215,41 +216,62 @@ if st.session_state.logged_in:
     st.divider()
 
     # NOTIFICATION INBOX PANEL
-    with st.expander("🔔 My Notifications", expanded=True):
+    with st.expander("🔔 Notification Inbox", expanded=True):
         render_notification_inbox(user_info["user_id"])
 
     st.divider()
 
-    # DASHBOARD NAVIGATION MENU
+    # ---------------------------------------------------------
+    # ROLE-BASED DASHBOARD MENU
+    # ---------------------------------------------------------
     if st.session_state.dashboard_view == "menu":
         st.write("### Choose an Action")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("Start New Request", use_container_width=True):
-                st.session_state.dashboard_view = "new_request"
-                st.rerun()
-                
-        with col2:
-            if st.button("All Open Requests", use_container_width=True):
-                st.session_state.dashboard_view = "accept_request"
-                st.rerun()
 
-        with col3:
-            if st.button("50-Mile Radius Search", use_container_width=True):
-                st.session_state.dashboard_view = "matched_requests"
-                st.rerun()
+        # USER DASHBOARD OPTIONS
+        if user_role.lower() == "user":
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("➕ Start New Request", use_container_width=True):
+                    st.session_state.dashboard_view = "new_request"
+                    st.rerun()
 
-    # VIEW: CREATE NEW REQUEST
+            with col2:
+                if st.button("📋 See Status of My Requests", use_container_width=True):
+                    st.session_state.dashboard_view = "user_request_status"
+                    st.rerun()
+
+        # SAMARITAN DASHBOARD OPTIONS
+        elif user_role.lower() == "samaritan":
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                if st.button("🤝 Accept New Request", use_container_width=True):
+                    st.session_state.dashboard_view = "accept_request"
+                    st.rerun()
+
+            with col2:
+                if st.button("✅ See Accepted Requests", use_container_width=True):
+                    st.session_state.dashboard_view = "my_accepted_requests"
+                    st.rerun()
+
+            with col3:
+                if st.button("📍 50-Mile Radius Search", use_container_width=True):
+                    st.session_state.dashboard_view = "matched_requests"
+                    st.rerun()
+
+    # ---------------------------------------------------------
+    # USER VIEW 1: START NEW REQUEST
+    # ---------------------------------------------------------
     elif st.session_state.dashboard_view == "new_request":
         st.write("### Start a New Request")
         req_name = st.text_input("Request Name/Title", key="nr_name")
         req_zip = st.text_input("Zip Code", value=str(user_info.get("zip", "")), key="nr_zip")
-        req_description = st.text_area("Description", key="nr_description")
+        req_description = st.text_area("Description of Help Needed", key="nr_description")
 
         col_a, col_b = st.columns(2)
         with col_a:
-            if st.button("Back"):
+            if st.button("Back to Menu"):
                 st.session_state.dashboard_view = "menu"
                 st.rerun()
         with col_b:
@@ -285,57 +307,90 @@ if st.session_state.logged_in:
                 else:
                     st.error("Please fill out all fields.")
 
-    # VIEW: ACCEPT ALL OPEN REQUESTS
-    elif st.session_state.dashboard_view == "accept_request":
-        st.write("### All Pending Requests")
+    # ---------------------------------------------------------
+    # USER VIEW 2: SEE STATUS OF MY REQUESTS
+    # ---------------------------------------------------------
+    elif st.session_state.dashboard_view == "user_request_status":
+        st.write("### Status of Your Submitted Requests")
 
         try:
             all_requests_df = conn.read(worksheet="Requests", ttl=0)
-            pending_requests = all_requests_df[
-                (all_requests_df['status'] == "pending") & 
-                (all_requests_df['requested_by_id'].astype(str) != str(user_info["user_id"]))
+            my_requests = all_requests_df[
+                all_requests_df['requested_by_id'].astype(str) == str(user_info["user_id"])
             ].copy()
+        except Exception:
+            my_requests = pd.DataFrame()
+
+        if my_requests.empty:
+            st.info("You haven't submitted any requests yet.")
+        else:
+            for idx, row in my_requests.iterrows():
+                with st.container():
+                    st.write(f"**Request:** {row['request_name']}")
+                    st.write(f"**Description:** {row['description']}")
+                    st.write(f"**Zip Code:** {row['zip']}")
+
+                    status = str(row['status']).title()
+                    if status == "Pending":
+                        st.warning("⏳ Status: Pending (Waiting for a Samaritan)")
+                    elif status == "Accepted":
+                        samaritan = row.get('accepted_by_name', 'A Samaritan')
+                        st.success(f"✅ Status: Accepted by **{samaritan}**")
+                    else:
+                        st.info(f"ℹ️ Status: {status}")
+
+                st.divider()
+
+        if st.button("Back to Menu"):
+            st.session_state.dashboard_view = "menu"
+            st.rerun()
+
+    # ---------------------------------------------------------
+    # SAMARITAN VIEW 1: ACCEPT NEW REQUEST
+    # ---------------------------------------------------------
+    elif st.session_state.dashboard_view == "accept_request":
+        st.write("### Accept Pending Requests")
+
+        try:
+            all_requests_df = conn.read(worksheet="Requests", ttl=0)
+            pending_requests = all_requests_df[all_requests_df['status'] == "pending"].copy()
         except Exception:
             pending_requests = pd.DataFrame()
 
         if pending_requests.empty:
-            st.write("No pending requests right now.")
+            st.info("No open requests right now.")
         else:
             for idx, row in pending_requests.iterrows():
                 with st.container():
                     st.write(f"**Request:** {row['request_name']}")
                     st.write(f"**Requested By:** {row['requested_by_name']}")
-                    st.write(f"**Zip:** {row['zip']}")
+                    st.write(f"**Zip Code:** {row['zip']}")
                     st.write(f"**Description:** {row['description']}")
 
-                    if st.button("Accept", key=f"accept_all_{row['request_id']}"):
+                    if st.button("Accept Request", key=f"accept_open_{row['request_id']}"):
                         samaritan_name = f"{user_info['first_name']} {user_info['last_name']}"
                         req_title = row['request_name']
 
-                        # 1. Update Request status in Google Sheets
+                        # 1. Update Request state
                         all_requests_df.loc[all_requests_df['request_id'] == row['request_id'], 'status'] = 'accepted'
                         all_requests_df.loc[all_requests_df['request_id'] == row['request_id'], 'accepted_by_name'] = samaritan_name
                         all_requests_df.loc[all_requests_df['request_id'] == row['request_id'], 'accepted_by_id'] = user_info['user_id']
                         conn.update(worksheet="Requests", data=all_requests_df)
 
-                        # 2. Add notification for Requester
+                        # 2. Trigger Notifications
                         create_notification(
                             recipient_id=row['requested_by_id'],
                             message=f"Your request '{req_title}' was accepted by Samaritan {samaritan_name}!",
                             notif_type="request_accepted"
                         )
-
-                        # 3. Add notification for Samaritan
                         create_notification(
                             recipient_id=user_info['user_id'],
-                            message=f"You accepted '{req_title}' posted by {row['requested_by_name']}.",
+                            message=f"You successfully accepted '{req_title}'.",
                             notif_type="accepted_confirmation"
                         )
 
-                        # 4. Trigger browser push
                         send_browser_push("Request Accepted!", f"You accepted '{req_title}'")
-
-                        st.success("Request accepted and notification logged!")
+                        st.success("Request accepted!")
                         st.rerun()
 
                 st.divider()
@@ -344,7 +399,53 @@ if st.session_state.logged_in:
             st.session_state.dashboard_view = "menu"
             st.rerun()
 
-    # VIEW: 50-MILE RADIUS MATCHED REQUESTS
+    # ---------------------------------------------------------
+    # SAMARITAN VIEW 2: SEE ACCEPTED REQUESTS
+    # ---------------------------------------------------------
+    elif st.session_state.dashboard_view == "my_accepted_requests":
+        st.write("### Requests You've Accepted")
+
+        try:
+            all_requests_df = conn.read(worksheet="Requests", ttl=0)
+            my_accepted = all_requests_df[
+                (all_requests_df['accepted_by_id'].astype(str) == str(user_info["user_id"])) &
+                (all_requests_df['status'] == "accepted")
+            ].copy()
+        except Exception:
+            my_accepted = pd.DataFrame()
+
+        if my_accepted.empty:
+            st.info("You have not accepted any active requests yet.")
+        else:
+            for idx, row in my_accepted.iterrows():
+                with st.container():
+                    st.write(f"**Request:** {row['request_name']}")
+                    st.write(f"**User:** {row['requested_by_name']}")
+                    st.write(f"**Zip Code:** {row['zip']}")
+                    st.write(f"**Description:** {row['description']}")
+
+                    if st.button("Mark Completed", key=f"complete_{row['request_id']}"):
+                        all_requests_df.loc[all_requests_df['request_id'] == row['request_id'], 'status'] = 'completed'
+                        conn.update(worksheet="Requests", data=all_requests_df)
+
+                        create_notification(
+                            recipient_id=row['requested_by_id'],
+                            message=f"Your request '{row['request_name']}' was marked completed by Samaritan {user_info['first_name']}.",
+                            notif_type="request_completed"
+                        )
+
+                        st.success("Request marked as completed!")
+                        st.rerun()
+
+                st.divider()
+
+        if st.button("Back to Menu"):
+            st.session_state.dashboard_view = "menu"
+            st.rerun()
+
+    # ---------------------------------------------------------
+    # SAMARITAN VIEW 3: 50-MILE RADIUS SEARCH
+    # ---------------------------------------------------------
     elif st.session_state.dashboard_view == "matched_requests":
         st.write("### 📍 Requests Within 50 Miles")
 
@@ -358,10 +459,7 @@ if st.session_state.logged_in:
 
         try:
             all_requests_df = conn.read(worksheet="Requests", ttl=0)
-            pending_df = all_requests_df[
-                (all_requests_df['status'] == "pending") & 
-                (all_requests_df['requested_by_id'].astype(str) != str(user_info["user_id"]))
-            ].copy()
+            pending_df = all_requests_df[all_requests_df['status'] == "pending"].copy()
         except Exception:
             pending_df = pd.DataFrame()
 
@@ -381,7 +479,6 @@ if st.session_state.logged_in:
             else:
                 st.success(f"Found **{len(nearby_requests)}** request(s) within **{max_distance} miles**:")
                 
-                # Sort by closest distance first
                 nearby_requests.sort(key=lambda x: x['distance_miles'])
 
                 for req in nearby_requests:
@@ -468,7 +565,6 @@ else:
     elif page_action == "Register":
         st.subheader("Account Registration")
         st.caption("Please fill out the information below to create your profile.")
-        st.caption("This is for educational purposes only, please don't use real information.")
 
         role = st.selectbox("I am registering as a:", options=["User", "Samaritan"], key="account_role")
 

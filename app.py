@@ -7,8 +7,8 @@ import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
 from pypostalcode import PostalCodeDatabase
 
-# Initialize US Zipcode Search Engine
-search_engine = SearchEngine()
+# Initialize Postal Code Database
+pcdb = PostalCodeDatabase()
 
 # ---------------------------------------------------------
 # PAGE CONFIG & STYLING
@@ -83,26 +83,32 @@ def render_dob_selector(key_prefix):
     return f"{year}-{month}-{day}"
 
 # ---------------------------------------------------------
-# GEOGRAPHIC RADIUS HELPER
+# GEOGRAPHIC RADIUS HELPER (pypostalcode + Haversine)
 # ---------------------------------------------------------
 def get_zip_distance(zip1, zip2):
     """Calculates straight-line distance in miles between two US zip codes."""
-    z1 = search_engine.by_zipcode(str(zip1).strip())
-    z2 = search_engine.by_zipcode(str(zip2).strip())
+    try:
+        z1_str = str(zip1).strip().zfill(5)
+        z2_str = str(zip2).strip().zfill(5)
 
-    if not z1 or not z2 or not z1.lat or not z2.lat:
+        z1 = pcdb[z1_str]
+        z2 = pcdb[z2_str]
+
+        if not z1 or not z2:
+            return None
+
+        lat1, lon1 = math.radians(z1.latitude), math.radians(z1.longitude)
+        lat2, lon2 = math.radians(z2.latitude), math.radians(z2.longitude)
+
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+
+        a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        
+        return round(3958.8 * c, 1)
+    except Exception:
         return None
-
-    lat1, lon1 = math.radians(z1.lat), math.radians(z1.lng)
-    lat2, lon2 = math.radians(z2.lat), math.radians(z2.lng)
-
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-
-    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    
-    return round(3958.8 * c, 1)
 
 # ---------------------------------------------------------
 # NOTIFICATION HELPERS

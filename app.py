@@ -1,12 +1,20 @@
 import datetime
-import streamlit as st
-from streamlit_gsheets import GSheetsConnection
+import math
+import uuid
 import pandas as pd
+import streamlit as st
+import streamlit.components.v1 as components
+from streamlit_gsheets import GSheetsConnection
+from uszipcode import SearchEngine
 
-# Page config
+# Initialize US Zipcode Search Engine
+search_engine = SearchEngine()
+
+# ---------------------------------------------------------
+# PAGE CONFIG & STYLING
+# ---------------------------------------------------------
 st.set_page_config(page_title="Samaritan Services", layout="centered")
 
-# Custom CSS for background and styling
 page_bg = """
 <style>
 [data-testid="stAppViewContainer"] {
@@ -32,81 +40,29 @@ h1 {
     font-family: 'Arial Black', sans-serif;
 }
 
-[data-testid="stVerticalBlock"] p,
-[data-testid="stVerticalBlock"] span,
-[data-testid="stVerticalBlock"] label,
-[data-testid="stVerticalBlock"] li,
-[data-testid="stVerticalBlock"] h1,
-[data-testid="stVerticalBlock"] h2,
-[data-testid="stVerticalBlock"] h3,
-[data-testid="stVerticalBlock"] h4 {
+label {
     color: black !important;
     font-weight: bold;
-}
-
-[data-testid="stVerticalBlock"] button {
-    color: black !important;
-    background-color: white !important;
-    border: 1px solid #999 !important;
 }
 </style>
 """
 st.markdown(page_bg, unsafe_allow_html=True)
-
 st.title("Samaritan Services")
+
+# Initialize Google Sheets Connection
 conn = st.connection("gsheets", type=GSheetsConnection)
-# conn = st.connection("gsheets", type=GSheetsConnection)
 
-# example usage
-# if st.button("Test write to sheet"):
-#     # Read existing data (if the sheet has headers already)
-#     existing_df = conn.read(worksheet="Sheet1")
-#
-#     # Create a new row
-#     new_row = pd.DataFrame([{"message": "hello world"}])
-#
-#     # Append it
-#     updated_df = pd.concat([existing_df, new_row], ignore_index=True)
-#     conn.update(worksheet="Sheet1", data=updated_df)
-#
-#     st.success("Wrote 'hello world' to the sheet!")
-#     st.dataframe(updated_df)
-
-
-# Initialize Demo Accounts Database in Session State
-if "users_db" not in st.session_state:
-    st.session_state.users_db = {
-        "test_samaritan": {
-            "password": "test_samaritan",
-            "role": "Samaritan",
-            "first_name": "Sam",
-            "last_name": "Goodman",
-            "city": "Seattle",
-            "state": "WA",
-        },
-        "test_user": {
-            "password": "test_user",
-            "role": "User",
-            "first_name": "Jane",
-            "last_name": "Doe",
-            "city": "Seattle",
-            "state": "WA",
-        },
-    }
-
-# Track authentication state
+# ---------------------------------------------------------
+# SESSION STATE INITIALIZATION
+# ---------------------------------------------------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-
-# In-memory store for submitted requests
-if "requests_db" not in st.session_state:
-    st.session_state.requests_db = []
-
-# Which sub-view of the logged-in dashboard is showing
+if "current_user" not in st.session_state:
+    st.session_state.current_user = None
 if "dashboard_view" not in st.session_state:
     st.session_state.dashboard_view = "menu"
 
-# Date ranges for DOB dropdowns (1900 to 2026)
+# Date of Birth dropdown values
 CURRENT_YEAR = datetime.date.today().year
 YEARS = list(range(CURRENT_YEAR, 1899, -1))
 MONTHS = [
@@ -115,27 +71,134 @@ MONTHS = [
 ]
 DAYS = list(range(1, 32))
 
-
 def render_dob_selector(key_prefix):
     st.write("**Date of Birth**")
     col_y, col_m, col_d = st.columns(3)
     with col_y:
-        year = st.selectbox("Year", options=YEARS, index=26, key=f"{key_prefix}_year")  # Default ~2000
+        year = st.selectbox("Year", options=YEARS, index=26, key=f"{key_prefix}_year")
     with col_m:
         month = st.selectbox("Month", options=MONTHS, key=f"{key_prefix}_month")
     with col_d:
         day = st.selectbox("Day", options=DAYS, key=f"{key_prefix}_day")
     return f"{year}-{month}-{day}"
 
+# ---------------------------------------------------------
+# GEOGRAPHIC RADIUS HELPER
+# ---------------------------------------------------------
+def get_zip_distance(zip1, zip2):
+    """Calculates straight-line distance in miles between two US zip codes."""
+    z1 = search_engine.by_zipcode(str(zip1).strip())
+    z2 = search_engine.by_zipcode(str(zip2).strip())
+
+    if not z1 or not z2 or not z1.lat or not z2.lat:
+        return None
+
+    lat1, lon1 = math.radians(z1.lat), math.radians(z1.lng)
+    lat2, lon2 = math.radians(z2.lat), math.radians(z2.lng)
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+
+    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    
+    return round(3958.8 * c, 1)
+
+# ---------------------------------------------------------
+# NOTIFICATION HELPERS
+# ---------------------------------------------------------
+def send_browser_push(title, body):
+    """Triggers a native browser push notification via JavaScript."""
+    js_code = f"""
+    <script>
+    if ("Notification" in window) {{
+        if (Notification.permission === "granted") {{
+            new Notification("{title}", {{ body: "{body}" }});
+        }} else if (Notification.permission !== "denied") {{
+            Notification.requestPermission().then(p => {{
+                if (p === "granted") new Notification("{title}", {{ body: "{body}" }});
+            }});
+        }}
+    }}
+    </script>
+    """
+    components.html(js_code, height=0)
+
+def create_notification(recipient_id, message, notif_type):
+    """Appends a new notification row to the Google Sheets Notifications tab."""
+    try:
+        notif_existing_df = conn.read(worksheet="Notifications", ttl=0)
+    except Exception:
+        notif_existing_df = pd.DataFrame(columns=[
+            "notification_id", "recipient_user_id", "message", "type", "created_at", "is_read"
+        ])
+    
+    new_notif = pd.DataFrame([{
+        "notification_id": str(uuid.uuid4())[:8],
+        "recipient_user_id": str(recipient_id),
+        "message": message,
+        "type": notif_type,
+        "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "is_read": False
+    }])
+    
+    updated_notifs_df = pd.concat([notif_existing_df, new_notif], ignore_index=True)
+    conn.update(worksheet="Notifications", data=updated_notifs_df)
+
+def render_notification_inbox(user_id):
+    """Renders the Notification Inbox panel inside the user profile."""
+    st.write("### 🔔 Notification Inbox")
+
+    try:
+        notifs_df = conn.read(worksheet="Notifications", ttl=0)
+    except Exception:
+        st.warning("Could not load Notifications worksheet.")
+        return
+
+    if notifs_df.empty or "recipient_user_id" not in notifs_df.columns:
+        st.info("No notifications yet.")
+        return
+
+    user_notifs = notifs_df[notifs_df["recipient_user_id"].astype(str) == str(user_id)].copy()
+
+    if user_notifs.empty:
+        st.info("You have no notifications.")
+        return
+
+    user_notifs = user_notifs.sort_values(by="created_at", ascending=False)
+    unread_count = len(user_notifs[user_notifs["is_read"] == False])
+
+    if unread_count > 0:
+        st.caption(f"You have **{unread_count} unread** notification(s).")
+
+    for idx, row in user_notifs.iterrows():
+        is_unread = not row["is_read"]
+        badge = "🔴 " if is_unread else "⚪ "
+
+        with st.container():
+            col_content, col_action = st.columns([4, 1])
+
+            with col_content:
+                st.markdown(f"{badge}**{row['message']}**")
+                st.caption(f"Received: {row['created_at']}")
+
+            with col_action:
+                if is_unread:
+                    if st.button("Mark Read", key=f"read_{row['notification_id']}"):
+                        notifs_df.loc[notifs_df["notification_id"] == row["notification_id"], "is_read"] = True
+                        conn.update(worksheet="Notifications", data=notifs_df)
+                        st.rerun()
+
+        st.divider()
 
 # ---------------------------------------------------------
 # LOGGED-IN DASHBOARD VIEW
 # ---------------------------------------------------------
 if st.session_state.logged_in:
     user_info = st.session_state.current_user
-
-    st.subheader(f"Logged in as: {user_info['first_name']} {user_info['last_name']}")
-    st.caption(f"Role: {user_info['role']}")
+    
+    st.subheader(f"Welcome, {user_info['first_name']} {user_info['last_name']}")
+    st.caption(f"Role: {user_info['role']} | User ID: {user_info['user_id']} | Zip: {user_info.get('zip', 'N/A')}")
 
     if st.button("Log Out"):
         st.session_state.logged_in = False
@@ -145,150 +208,212 @@ if st.session_state.logged_in:
 
     st.divider()
 
+    # NOTIFICATION INBOX PANEL
+    with st.expander("🔔 My Notifications", expanded=True):
+        render_notification_inbox(user_info["user_id"])
+
+    st.divider()
+
+    # DASHBOARD NAVIGATION MENU
     if st.session_state.dashboard_view == "menu":
         st.write("### Choose an Action")
-
-        if user_info["role"] == "User":
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Start New Request", use_container_width=True):
-                    st.session_state.dashboard_view = "new_request_form"
-                    st.rerun()
-            with col2:
-                if st.button("My Requests", use_container_width=True):
-                    st.session_state.dashboard_view = "my_requests"
-                    st.rerun()
-        else:  # Samaritan
-            if st.button("Accept Existing Request", use_container_width=True):
-                st.session_state.dashboard_view = "accept_request_list"
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("Start New Request", use_container_width=True):
+                st.session_state.dashboard_view = "new_request"
+                st.rerun()
+                
+        with col2:
+            if st.button("All Open Requests", use_container_width=True):
+                st.session_state.dashboard_view = "accept_request"
                 st.rerun()
 
-    elif st.session_state.dashboard_view == "new_request_form":
-        if user_info["role"] != "User":
-            st.session_state.dashboard_view = "menu"
-            st.rerun()
-        else:
-            st.write("### Start New Request")
-            st.text_input("Name", key="nr_name")
-            st.text_input("Zip", key="nr_zip")
-            st.text_area("Description", key="nr_description")
+        with col3:
+            if st.button("50-Mile Radius Search", use_container_width=True):
+                st.session_state.dashboard_view = "matched_requests"
+                st.rerun()
 
-            col_a, col_b = st.columns(2)
-            with col_a:
-                if st.button("Cancel"):
-                    st.session_state.dashboard_view = "menu"
-                    st.rerun()
-            with col_b:
-                if st.button("Submit Request"):
-                    if st.session_state.nr_name and st.session_state.nr_zip and st.session_state.nr_description:
-                        req_existing_df = conn.read(worksheet="Requests", ttl=0)
-                        request_id = 0
-                        if request_id in req_existing_df['request_id'].values:
-                            while request_id in req_existing_df['request_id'].values:
-                                request_id += 1
-                        req_new_row = pd.DataFrame([{
-                            "request_id": request_id,
-                            "request_name": st.session_state.nr_name,
-                            "zip": st.session_state.nr_zip,
-                            "description": st.session_state.nr_description,
-                            "requested_by_name": f"{user_info['first_name']} {user_info['last_name']}",
-                            "requested_by_id": user_info["user_id"],
-                            "status": "pending"
-                        }])
-                        req_updated_df = pd.concat([req_existing_df, req_new_row], ignore_index=True)
-                        conn.update(worksheet="Requests", data=req_updated_df)
-                        # st.session_state.requests_db.append({
-                        #     "name": st.session_state.nr_name,
-                        #     "zip": st.session_state.nr_zip,
-                        #     "description": st.session_state.nr_description,
-                        #     "requested_by": f"{user_info['first_name']} {user_info['last_name']}",
-                        #     "requested_by_id": user_info["user_id"],
-                        #     "status": "pending",
-                        #     "accepted_by": None,
-                        # })
-                        st.session_state.dashboard_view = "menu"
-                        st.success("Request submitted!")
-                        st.rerun()
-                    else:
-                        st.error("Please fill in all fields.")
+    # VIEW: CREATE NEW REQUEST
+    elif st.session_state.dashboard_view == "new_request":
+        st.write("### Start a New Request")
+        req_name = st.text_input("Request Name/Title", key="nr_name")
+        req_zip = st.text_input("Zip Code", value=str(user_info.get("zip", "")), key="nr_zip")
+        req_description = st.text_area("Description", key="nr_description")
 
-    elif st.session_state.dashboard_view == "my_requests":
-        if user_info["role"] != "User":
-            st.session_state.dashboard_view = "menu"
-            st.rerun()
-        else:
-            st.write("### My Requests")
-            all_requests_df = conn.read(worksheet="Requests", ttl=0)
-            my_requests = all_requests_df[all_requests_df['requested_by_id'] == user_info["user_id"]].copy()
-            # my_requests = [
-            #     r for r in st.session_state.requests_db
-            #     if r["requested_by_id"] == user_info["user_id"]
-            # ]
-
-            if len(my_requests) < 1:
-                st.write("You haven't submitted any requests yet.")
-            else:
-                for idx, row in my_requests.iterrows():
-                    with st.container():
-                        st.write(f"**Name:** {row['request_name']}")
-                        st.write(f"**Zip:** {row['zip']}")
-                        st.write(f"**Description:** {row['description']}")
-                        st.write(f"**Status:** {row['status'].capitalize()}")
-                        if row["status"] == "accepted":
-                            st.write(f"**Accepted by:** {row['accepted_by_name']}")
-                        st.divider()
-
+        col_a, col_b = st.columns(2)
+        with col_a:
             if st.button("Back"):
                 st.session_state.dashboard_view = "menu"
                 st.rerun()
+        with col_b:
+            if st.button("Submit Request"):
+                if req_name and req_zip and req_description:
+                    try:
+                        req_existing_df = conn.read(worksheet="Requests", ttl=0)
+                    except Exception:
+                        req_existing_df = pd.DataFrame()
 
-    elif st.session_state.dashboard_view == "accept_request_list":
-        if user_info["role"] != "Samaritan":
+                    request_id = str(uuid.uuid4())[:8]
+
+                    req_new_row = pd.DataFrame([{
+                        "request_id": request_id,
+                        "request_name": req_name,
+                        "zip": req_zip,
+                        "description": req_description,
+                        "requested_by": f"{user_info['first_name']} {user_info['last_name']}",
+                        "requested_by_name": f"{user_info['first_name']} {user_info['last_name']}",
+                        "requested_by_id": user_info["user_id"],
+                        "status": "pending",
+                        "accepted_by": None,
+                        "accepted_by_name": None,
+                        "accepted_by_id": None
+                    }])
+
+                    req_updated_df = pd.concat([req_existing_df, req_new_row], ignore_index=True)
+                    conn.update(worksheet="Requests", data=req_updated_df)
+
+                    st.session_state.dashboard_view = "menu"
+                    st.success("Request submitted successfully!")
+                    st.rerun()
+                else:
+                    st.error("Please fill out all fields.")
+
+    # VIEW: ACCEPT ALL OPEN REQUESTS
+    elif st.session_state.dashboard_view == "accept_request":
+        st.write("### All Pending Requests")
+
+        try:
+            all_requests_df = conn.read(worksheet="Requests", ttl=0)
+            pending_requests = all_requests_df[
+                (all_requests_df['status'] == "pending") & 
+                (all_requests_df['requested_by_id'].astype(str) != str(user_info["user_id"]))
+            ].copy()
+        except Exception:
+            pending_requests = pd.DataFrame()
+
+        if pending_requests.empty:
+            st.write("No pending requests right now.")
+        else:
+            for idx, row in pending_requests.iterrows():
+                with st.container():
+                    st.write(f"**Request:** {row['request_name']}")
+                    st.write(f"**Requested By:** {row['requested_by_name']}")
+                    st.write(f"**Zip:** {row['zip']}")
+                    st.write(f"**Description:** {row['description']}")
+
+                    if st.button("Accept", key=f"accept_all_{row['request_id']}"):
+                        samaritan_name = f"{user_info['first_name']} {user_info['last_name']}"
+                        req_title = row['request_name']
+
+                        # 1. Update Request status in Google Sheets
+                        all_requests_df.loc[all_requests_df['request_id'] == row['request_id'], 'status'] = 'accepted'
+                        all_requests_df.loc[all_requests_df['request_id'] == row['request_id'], 'accepted_by_name'] = samaritan_name
+                        all_requests_df.loc[all_requests_df['request_id'] == row['request_id'], 'accepted_by_id'] = user_info['user_id']
+                        conn.update(worksheet="Requests", data=all_requests_df)
+
+                        # 2. Add notification for Requester
+                        create_notification(
+                            recipient_id=row['requested_by_id'],
+                            message=f"Your request '{req_title}' was accepted by Samaritan {samaritan_name}!",
+                            notif_type="request_accepted"
+                        )
+
+                        # 3. Add notification for Samaritan
+                        create_notification(
+                            recipient_id=user_info['user_id'],
+                            message=f"You accepted '{req_title}' posted by {row['requested_by_name']}.",
+                            notif_type="accepted_confirmation"
+                        )
+
+                        # 4. Trigger browser push
+                        send_browser_push("Request Accepted!", f"You accepted '{req_title}'")
+
+                        st.success("Request accepted and notification logged!")
+                        st.rerun()
+
+                st.divider()
+
+        if st.button("Back to Menu"):
             st.session_state.dashboard_view = "menu"
             st.rerun()
-        else:
-            st.write("### Pending Requests")
-            all_requests_df = conn.read(worksheet="Requests", ttl=0)
-            all_requests_df['accepted_by_name'] = all_requests_df['accepted_by_name'].astype(str)
-            all_requests_df['accepted_by_id'] = all_requests_df['accepted_by_id'].astype(str)
-            pending_requests = all_requests_df[(all_requests_df['status'] == "pending") & (all_requests_df['requested_by_id'] != user_info["user_id"])].copy()
-            # pending_requests = [
-            #     (idx, r) for idx, r in enumerate(st.session_state.requests_db)
-            #     if r["status"] == "pending" and r["requested_by_id"] != user_info["user_id"]
-            # ]
 
-            if len(pending_requests) < 1:
-                st.write("No pending requests right now.")
+    # VIEW: 50-MILE RADIUS MATCHED REQUESTS
+    elif st.session_state.dashboard_view == "matched_requests":
+        st.write("### 📍 Requests Within 50 Miles")
+
+        user_zip = str(user_info.get("zip", "")).strip()
+
+        col_zip, col_rad = st.columns([2, 1])
+        with col_zip:
+            search_zip = st.text_input("Center Zip Code", value=user_zip, key="radius_zip_input")
+        with col_rad:
+            max_distance = st.slider("Max Miles", min_value=1, max_value=50, value=50, step=1)
+
+        try:
+            all_requests_df = conn.read(worksheet="Requests", ttl=0)
+            pending_df = all_requests_df[
+                (all_requests_df['status'] == "pending") & 
+                (all_requests_df['requested_by_id'].astype(str) != str(user_info["user_id"]))
+            ].copy()
+        except Exception:
+            pending_df = pd.DataFrame()
+
+        if pending_df.empty or not search_zip:
+            st.info("No pending requests available to search.")
+        else:
+            nearby_requests = []
+            for idx, row in pending_df.iterrows():
+                dist = get_zip_distance(search_zip, row['zip'])
+                if dist is not None and dist <= max_distance:
+                    row_dict = row.to_dict()
+                    row_dict['distance_miles'] = dist
+                    nearby_requests.append(row_dict)
+
+            if not nearby_requests:
+                st.warning(f"No pending requests found within **{max_distance} miles** of zip **{search_zip}**.")
             else:
-                for idx, row in pending_requests.iterrows():
+                st.success(f"Found **{len(nearby_requests)}** request(s) within **{max_distance} miles**:")
+                
+                # Sort by closest distance first
+                nearby_requests.sort(key=lambda x: x['distance_miles'])
+
+                for req in nearby_requests:
                     with st.container():
-                        st.write(f"**Name:** {row['request_name']}")
-                        st.write(f"**Zip:** {row['zip']}")
-                        st.write(f"**Description:** {row['description']}")
-                        if st.button("Accept", key=f"accept_{idx}"):
-                            all_requests_df.at[idx,'status'] = 'accepted'
-                            all_requests_df.at[idx, 'accepted_by_name'] = f"{user_info['first_name']} {user_info['last_name']}"
-                            all_requests_df.at[idx, 'accepted_by_id'] = user_info['user_id']
+                        st.write(f"**Request:** {req['request_name']}")
+                        st.write(f"**Requested By:** {req['requested_by_name']}")
+                        st.write(f"**Location:** Zip {req['zip']} (**{req['distance_miles']} miles away**)")
+                        st.write(f"**Description:** {req['description']}")
+
+                        if st.button("Accept Request", key=f"accept_rad_{req['request_id']}"):
+                            samaritan_name = f"{user_info['first_name']} {user_info['last_name']}"
+                            req_title = req['request_name']
+
+                            all_requests_df.loc[all_requests_df['request_id'] == req['request_id'], 'status'] = 'accepted'
+                            all_requests_df.loc[all_requests_df['request_id'] == req['request_id'], 'accepted_by_name'] = samaritan_name
+                            all_requests_df.loc[all_requests_df['request_id'] == req['request_id'], 'accepted_by_id'] = user_info['user_id']
                             conn.update(worksheet="Requests", data=all_requests_df)
+
+                            create_notification(
+                                recipient_id=req['requested_by_id'],
+                                message=f"Your request '{req_title}' was accepted by Samaritan {samaritan_name}!",
+                                notif_type="request_accepted"
+                            )
+                            create_notification(
+                                recipient_id=user_info['user_id'],
+                                message=f"You accepted '{req_title}' posted by {req['requested_by_name']}.",
+                                notif_type="accepted_confirmation"
+                            )
+
+                            send_browser_push("Request Accepted!", f"You accepted '{req_title}'")
                             st.success("Request accepted!")
                             st.rerun()
-                        st.divider()
 
-                # for idx, req in pending_requests:
-                #     with st.container():
-                #         st.write(f"**Name:** {req['name']}")
-                #         st.write(f"**Zip:** {req['zip']}")
-                #         st.write(f"**Description:** {req['description']}")
-                #         if st.button("Accept", key=f"accept_{idx}"):
-                #             req["status"] = "accepted"
-                #             req["accepted_by"] = f"{user_info['first_name']} {user_info['last_name']}"
-                #             st.success("Request accepted!")
-                #             st.rerun()
-                #         st.divider()
+                    st.divider()
 
-            if st.button("Back"):
-                st.session_state.dashboard_view = "menu"
-                st.rerun()
+        if st.button("Back to Menu"):
+            st.session_state.dashboard_view = "menu"
+            st.rerun()
 
 # ---------------------------------------------------------
 # LOGGED-OUT VIEW (LOGIN OR REGISTER)
@@ -302,7 +427,7 @@ else:
 
     st.divider()
 
-    # LOGIN PAGE
+    # LOGIN VIEW
     if page_action == "Login":
         st.subheader("Login to Your Account")
 
@@ -310,74 +435,72 @@ else:
         login_pass = st.text_input("Password", type="password", key="login_password")
 
         if st.button("Log In"):
-            # users = st.session_state.users_db
-            user_existing_df = conn.read(worksheet="Users", ttl=0)
-            if login_id in user_existing_df['user_id'].values:
-                stored_pass = user_existing_df.loc[user_existing_df['user_id'] == login_id,'password'].values[0]
-                if login_pass == stored_pass:
-                    st.session_state.logged_in = True
-                    st.session_state.current_user = {
-                    "first_name":user_existing_df.loc[user_existing_df['user_id'] == login_id,'first_name'].values[0],
-                    "last_name":user_existing_df.loc[user_existing_df['user_id'] == login_id,'last_name'].values[0],
-                    "role":user_existing_df.loc[user_existing_df['user_id'] == login_id,'role'].values[0],
-                    "user_id": login_id}
-                    st.rerun()
-                else:
-                    st.error("Incorrect Password.")
-            else:
-                st.error("Invalid User ID.")
+            try:
+                user_existing_df = conn.read(worksheet="Users", ttl=0)
+                user_match = user_existing_df[user_existing_df['user_id'].astype(str) == str(login_id)]
 
-    # SINGLE UNIFIED REGISTER PAGE
+                if not user_match.empty:
+                    stored_pass = str(user_match['password'].values[0])
+                    if str(login_pass) == stored_pass:
+                        st.session_state.logged_in = True
+                        st.session_state.current_user = {
+                            "user_id": login_id,
+                            "first_name": user_match['first_name'].values[0],
+                            "last_name": user_match['last_name'].values[0],
+                            "role": user_match['role'].values[0],
+                            "zip": user_match['zip'].values[0] if 'zip' in user_match.columns else "",
+                        }
+                        st.rerun()
+                    else:
+                        st.error("Incorrect Password.")
+                else:
+                    st.error("Invalid User ID.")
+            except Exception as e:
+                st.error("Could not reach Users database. Please check Google Sheets setup.")
+
+    # REGISTER VIEW
     elif page_action == "Register":
         st.subheader("Account Registration")
         st.caption("Please fill out the information below to create your profile.")
         st.caption("This is for educational purposes only, please don't use real information.")
 
-        # Single Role Selector Field
-        role = st.selectbox(
-            "I am registering as a:",
-            options=["User", "Samaritan"],
-            key="account_role"
-        )
+        role = st.selectbox("I am registering as a:", options=["User", "Samaritan"], key="account_role")
 
-        # Credentials
         reg_user_id = st.text_input("User ID", key="reg_user_id")
         reg_password = st.text_input("Password", type="password", key="reg_password")
 
-        # Personal Details
         first_name = st.text_input("First Name", key="reg_first")
         middle_name = st.text_input("Middle Name or Initial", key="reg_middle")
         last_name = st.text_input("Last Name", key="reg_last")
-
+        
         dob_str = render_dob_selector("reg_dob")
-
+        
         city = st.text_input("City", key="reg_city")
         state = st.text_input("State", key="reg_state")
-        zip_code = st.text_input("Zip", key="reg_zip")
+        zip_code = st.text_input("Zip Code", key="reg_zip")
         age = st.number_input("Age", min_value=18, max_value=120, key="reg_age")
 
-        # Dynamic Fields based on Selected Role
         if role == "Samaritan":
             services = st.text_area("Services you would like to offer", key="reg_services")
-            # uploaded_file = st.file_uploader(
-            #     "Upload a picture of driver's license",
-            #     type=["jpeg", "jpg", "png"],
-            #     key="reg_dl_pic"
-            # )
+            uploaded_file = st.file_uploader("Upload a picture of driver's license", type=["jpeg", "jpg", "png"], key="reg_dl_pic")
         else:
             services = ""
-            # uploaded_file = st.file_uploader(
-            #     "Upload any form of ID to verify information",
-            #     type=["jpeg", "jpg", "png", "pdf"],
-            #     key="reg_user_id_doc"
-            # )
+            uploaded_file = st.file_uploader("Upload any form of ID to verify information", type=["jpeg", "jpg", "png", "pdf"], key="reg_user_id_doc")
 
         if st.button("Submit Registration"):
-            # Read existing data (if the sheet has headers already)
-            user_existing_df = conn.read(worksheet="Users", ttl=0)
-            if reg_user_id not in user_existing_df["user_id"].values:
-                if reg_user_id and reg_password:
-                    # Create a new row
+            if not reg_user_id or not reg_password:
+                st.error("Please fill in both User ID and Password.")
+            else:
+                try:
+                    user_existing_df = conn.read(worksheet="Users", ttl=0)
+                except Exception:
+                    user_existing_df = pd.DataFrame(columns=[
+                        "user_id", "password", "role", "first_name", "last_name", "city", "state", "zip", "services"
+                    ])
+
+                if reg_user_id in user_existing_df["user_id"].astype(str).values:
+                    st.error(f"User ID '{reg_user_id}' is already taken. Please choose another one.")
+                else:
                     user_new_row = pd.DataFrame([{
                         "user_id": reg_user_id,
                         "password": reg_password,
@@ -390,19 +513,6 @@ else:
                         "services": services
                     }])
 
-                    # Append it
                     user_updated_df = pd.concat([user_existing_df, user_new_row], ignore_index=True)
                     conn.update(worksheet="Users", data=user_updated_df)
-                    # st.session_state.users_db[reg_user_id] = {
-                    #     "password": reg_password,
-                    #     "role": role,
-                    #     "first_name": first_name or role,
-                    #     "last_name": last_name or "User",
-                    #     "city": city,
-                    #     "state": state,
-                    # }
                     st.success(f"Registered successfully as {role}! You can now log in.")
-                else:
-                    st.error("Please fill in both User ID and Password.")
-            else:
-                st.error(f"User ID: {reg_user_id} is already taken. Please choose another one.")

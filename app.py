@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
-from uszipcode import SearchEngine
+from pypostalcode import PostalCodeDatabase
 
 # Initialize US Zipcode Search Engine
 search_engine = SearchEngine()

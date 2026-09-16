@@ -5,10 +5,10 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
-from pypostalcode import PostalCodeDatabase
+from pyzipcode import ZipCodeDatabase
 
-# Initialize Postal Code Database
-pcdb = PostalCodeDatabase()
+# Initialize PyZipCode Database
+pcdb = ZipCodeDatabase()
 
 # ---------------------------------------------------------
 # PAGE CONFIG & STYLING
@@ -83,14 +83,23 @@ def render_dob_selector(key_prefix):
     return f"{year}-{month}-{day}"
 
 # ---------------------------------------------------------
-# GEOGRAPHIC RADIUS HELPER
+# GEOGRAPHIC RADIUS HELPER (FIXED FOR US ZIP CODES WITH PYZIPCODE)
 # ---------------------------------------------------------
+def clean_zip_display(zip_val):
+    """Formats zip values to remove decimal points from pandas parsing."""
+    if pd.isna(zip_val) or not zip_val:
+        return ""
+    return str(zip_val).split('.')[0].strip().zfill(5)
+
 def get_zip_distance(zip1, zip2):
     """Calculates straight-line distance in miles between two US zip codes."""
     try:
-        # Cleans floats like '48304.0' or raw ints into clean 5-digit strings like '48304'
-        z1_str = str(zip1).split('.')[0].strip().zfill(5)
-        z2_str = str(zip2).split('.')[0].strip().zfill(5)
+        z1_str = clean_zip_display(zip1)
+        z2_str = clean_zip_display(zip2)
+
+        # Same zip code distance is 0 miles
+        if z1_str == z2_str and len(z1_str) == 5:
+            return 0.0
 
         z1 = pcdb[z1_str]
         z2 = pcdb[z2_str]
@@ -110,12 +119,6 @@ def get_zip_distance(zip1, zip2):
         return round(3958.8 * c, 1)
     except Exception:
         return None
-
-def clean_zip_display(zip_val):
-    """Formats zip values to remove decimal points from pandas parsing."""
-    if pd.isna(zip_val) or not zip_val:
-        return ""
-    return str(zip_val).split('.')[0].strip()
 
 # ---------------------------------------------------------
 # NOTIFICATION SYSTEM HELPERS

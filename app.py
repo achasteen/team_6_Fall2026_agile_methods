@@ -88,8 +88,9 @@ def render_dob_selector(key_prefix):
 def get_zip_distance(zip1, zip2):
     """Calculates straight-line distance in miles between two US zip codes."""
     try:
-        z1_str = str(zip1).strip().zfill(5)
-        z2_str = str(zip2).strip().zfill(5)
+        # Cleans floats like '48304.0' or raw ints into clean 5-digit strings like '48304'
+        z1_str = str(zip1).split('.')[0].strip().zfill(5)
+        z2_str = str(zip2).split('.')[0].strip().zfill(5)
 
         z1 = pcdb[z1_str]
         z2 = pcdb[z2_str]
@@ -109,6 +110,12 @@ def get_zip_distance(zip1, zip2):
         return round(3958.8 * c, 1)
     except Exception:
         return None
+
+def clean_zip_display(zip_val):
+    """Formats zip values to remove decimal points from pandas parsing."""
+    if pd.isna(zip_val) or not zip_val:
+        return ""
+    return str(zip_val).split('.')[0].strip()
 
 # ---------------------------------------------------------
 # NOTIFICATION SYSTEM HELPERS
@@ -152,7 +159,7 @@ def create_notification(recipient_id, message, notif_type):
     conn.update(worksheet="Notifications", data=updated_notifs_df)
 
 def render_notification_inbox(user_id):
-    """Renders the Notification Inbox panel inside the user profile."""
+    """Renders the Notification Inbox panel inside the dashboard."""
     st.write("### 🔔 Notification Inbox")
 
     try:
@@ -205,7 +212,7 @@ if st.session_state.logged_in:
     user_role = str(user_info.get("role", "User"))
 
     st.subheader(f"Welcome, {user_info['first_name']} {user_info['last_name']} ({user_role})")
-    st.caption(f"User ID: {user_info['user_id']} | Zip Code: {user_info.get('zip', 'N/A')}")
+    st.caption(f"User ID: {user_info['user_id']} | Zip Code: {clean_zip_display(user_info.get('zip', 'N/A'))}")
 
     if st.button("Log Out"):
         st.session_state.logged_in = False
@@ -266,7 +273,7 @@ if st.session_state.logged_in:
     elif st.session_state.dashboard_view == "new_request":
         st.write("### Start a New Request")
         req_name = st.text_input("Request Name/Title", key="nr_name")
-        req_zip = st.text_input("Zip Code", value=str(user_info.get("zip", "")), key="nr_zip")
+        req_zip = st.text_input("Zip Code", value=clean_zip_display(user_info.get("zip", "")), key="nr_zip")
         req_description = st.text_area("Description of Help Needed", key="nr_description")
 
         col_a, col_b = st.columns(2)
@@ -287,7 +294,7 @@ if st.session_state.logged_in:
                     req_new_row = pd.DataFrame([{
                         "request_id": request_id,
                         "request_name": req_name,
-                        "zip": req_zip,
+                        "zip": clean_zip_display(req_zip),
                         "description": req_description,
                         "requested_by": f"{user_info['first_name']} {user_info['last_name']}",
                         "requested_by_name": f"{user_info['first_name']} {user_info['last_name']}",
@@ -328,7 +335,7 @@ if st.session_state.logged_in:
                 with st.container():
                     st.write(f"**Request:** {row['request_name']}")
                     st.write(f"**Description:** {row['description']}")
-                    st.write(f"**Zip Code:** {row['zip']}")
+                    st.write(f"**Zip Code:** {clean_zip_display(row['zip'])}")
 
                     status = str(row['status']).title()
                     if status == "Pending":
@@ -364,20 +371,18 @@ if st.session_state.logged_in:
                 with st.container():
                     st.write(f"**Request:** {row['request_name']}")
                     st.write(f"**Requested By:** {row['requested_by_name']}")
-                    st.write(f"**Zip Code:** {row['zip']}")
+                    st.write(f"**Zip Code:** {clean_zip_display(row['zip'])}")
                     st.write(f"**Description:** {row['description']}")
 
                     if st.button("Accept Request", key=f"accept_open_{row['request_id']}"):
                         samaritan_name = f"{user_info['first_name']} {user_info['last_name']}"
                         req_title = row['request_name']
 
-                        # 1. Update Request state
                         all_requests_df.loc[all_requests_df['request_id'] == row['request_id'], 'status'] = 'accepted'
                         all_requests_df.loc[all_requests_df['request_id'] == row['request_id'], 'accepted_by_name'] = samaritan_name
                         all_requests_df.loc[all_requests_df['request_id'] == row['request_id'], 'accepted_by_id'] = user_info['user_id']
                         conn.update(worksheet="Requests", data=all_requests_df)
 
-                        # 2. Trigger Notifications
                         create_notification(
                             recipient_id=row['requested_by_id'],
                             message=f"Your request '{req_title}' was accepted by Samaritan {samaritan_name}!",
@@ -421,7 +426,7 @@ if st.session_state.logged_in:
                 with st.container():
                     st.write(f"**Request:** {row['request_name']}")
                     st.write(f"**User:** {row['requested_by_name']}")
-                    st.write(f"**Zip Code:** {row['zip']}")
+                    st.write(f"**Zip Code:** {clean_zip_display(row['zip'])}")
                     st.write(f"**Description:** {row['description']}")
 
                     if st.button("Mark Completed", key=f"complete_{row['request_id']}"):
@@ -449,7 +454,7 @@ if st.session_state.logged_in:
     elif st.session_state.dashboard_view == "matched_requests":
         st.write("### 📍 Requests Within 50 Miles")
 
-        user_zip = str(user_info.get("zip", "")).strip()
+        user_zip = clean_zip_display(user_info.get("zip", ""))
 
         col_zip, col_rad = st.columns([2, 1])
         with col_zip:
@@ -463,19 +468,21 @@ if st.session_state.logged_in:
         except Exception:
             pending_df = pd.DataFrame()
 
-        if pending_df.empty or not search_zip:
+        clean_search_zip = clean_zip_display(search_zip)
+
+        if pending_df.empty or not clean_search_zip:
             st.info("No pending requests available to search.")
         else:
             nearby_requests = []
             for idx, row in pending_df.iterrows():
-                dist = get_zip_distance(search_zip, row['zip'])
+                dist = get_zip_distance(clean_search_zip, row['zip'])
                 if dist is not None and dist <= max_distance:
                     row_dict = row.to_dict()
                     row_dict['distance_miles'] = dist
                     nearby_requests.append(row_dict)
 
             if not nearby_requests:
-                st.warning(f"No pending requests found within **{max_distance} miles** of zip **{search_zip}**.")
+                st.warning(f"No pending requests found within **{max_distance} miles** of zip **{clean_search_zip}**.")
             else:
                 st.success(f"Found **{len(nearby_requests)}** request(s) within **{max_distance} miles**:")
                 
@@ -485,7 +492,7 @@ if st.session_state.logged_in:
                     with st.container():
                         st.write(f"**Request:** {req['request_name']}")
                         st.write(f"**Requested By:** {req['requested_by_name']}")
-                        st.write(f"**Location:** Zip {req['zip']} (**{req['distance_miles']} miles away**)")
+                        st.write(f"**Location:** Zip {clean_zip_display(req['zip'])} (**{req['distance_miles']} miles away**)")
                         st.write(f"**Description:** {req['description']}")
 
                         if st.button("Accept Request", key=f"accept_rad_{req['request_id']}"):
@@ -551,7 +558,7 @@ else:
                             "first_name": user_match['first_name'].values[0],
                             "last_name": user_match['last_name'].values[0],
                             "role": user_match['role'].values[0],
-                            "zip": user_match['zip'].values[0] if 'zip' in user_match.columns else "",
+                            "zip": clean_zip_display(user_match['zip'].values[0]) if 'zip' in user_match.columns else "",
                         }
                         st.rerun()
                     else:
@@ -611,7 +618,7 @@ else:
                         "last_name": last_name or "User",
                         "city": city,
                         "state": state,
-                        "zip": zip_code,
+                        "zip": clean_zip_display(zip_code),
                         "services": services
                     }])
 

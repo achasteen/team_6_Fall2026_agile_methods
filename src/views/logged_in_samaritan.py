@@ -53,12 +53,14 @@ def render_accept_request(user_info, conn):
                     utils.create_notification(
                         recipient_id=row['requested_by_id'],
                         message=f"Your request '{req_title}' was accepted by Samaritan {samaritan_name}!",
-                        notif_type="request_accepted"
+                        notif_type="request_accepted",
+                        conn=conn
                     )
                     utils.create_notification(
                         recipient_id=user_info['user_id'],
                         message=f"You successfully accepted '{req_title}'.",
-                        notif_type="accepted_confirmation"
+                        notif_type="accepted_confirmation",
+                        conn=conn
                     )
 
                     utils.send_browser_push("Request Accepted!", f"You accepted '{req_title}'")
@@ -79,7 +81,7 @@ def render_accepted_requests(user_info, conn):
         my_accepted = all_requests_df[
             (all_requests_df['accepted_by_id'].astype(str) == str(user_info["user_id"])) &
             (all_requests_df['status'] == "accepted")
-            ].copy()
+        ].copy()
     except Exception:
         my_accepted = pd.DataFrame()
 
@@ -100,7 +102,8 @@ def render_accepted_requests(user_info, conn):
                     utils.create_notification(
                         recipient_id=row['requested_by_id'],
                         message=f"Your request '{row['request_name']}' was marked completed by Samaritan {user_info['first_name']}.",
-                        notif_type="request_completed"
+                        notif_type="request_completed",
+                        conn=conn
                     )
 
                     st.success("Request marked as completed!")
@@ -171,12 +174,14 @@ def render_matched_requests(user_info, conn):
                         utils.create_notification(
                             recipient_id=req['requested_by_id'],
                             message=f"Your request '{req_title}' was accepted by Samaritan {samaritan_name}!",
-                            notif_type="request_accepted"
+                            notif_type="request_accepted",
+                            conn=conn
                         )
                         utils.create_notification(
                             recipient_id=user_info['user_id'],
                             message=f"You accepted '{req_title}' posted by {req['requested_by_name']}.",
-                            notif_type="accepted_confirmation"
+                            notif_type="accepted_confirmation",
+                            conn=conn
                         )
 
                         utils.send_browser_push("Request Accepted!", f"You accepted '{req_title}'")

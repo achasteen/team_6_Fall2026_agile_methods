@@ -39,4 +39,10 @@ The necessary contents will be sent over chat.
 
 Please do NOT commit this `secrets.toml` file or share.
 
+## Github Copilot Code Review
+
+Github Copilot code review is enabled for pull requests. It will automatically run a code review when you submit a pull request.
+
+Another reason to follow the practice of creating a branch and then submitting a pull request to merge.
+
 

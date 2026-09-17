@@ -1,15 +1,10 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
-from pyzipcode import ZipCodeDatabase
 import src.views.logged_out_login as logged_out_login
 import src.views.logged_out_register as logged_out_register
 import src.views.logged_in_user as logged_in_user
 import src.views.logged_in_samaritan as logged_in_samaritan
 import src.utils as utils
-
-
-# Initialize PyZipCode Database
-pcdb = ZipCodeDatabase()
 
 # Initialize Google Sheets Connection
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -80,7 +75,6 @@ if "dashboard_view" not in st.session_state:
     st.session_state.dashboard_view = "menu"
 
 
-
 if st.session_state.logged_in:
 # ---------------------------------------------------------
 # LOGGED-IN DASHBOARD VIEW
@@ -115,31 +109,31 @@ if st.session_state.logged_in:
     # USER VIEW 1: START NEW REQUEST
     # ---------------------------------------------------------
     elif st.session_state.dashboard_view == "new_request":
-        logged_in_user.render_new_request(user_info,conn)
+        logged_in_user.render_new_request(user_info, conn)
 
     # ---------------------------------------------------------
     # USER VIEW 2: SEE STATUS OF MY REQUESTS
     # ---------------------------------------------------------
     elif st.session_state.dashboard_view == "user_request_status":
-        logged_in_user.render_user_status(user_info,conn)
+        logged_in_user.render_user_status(user_info, conn)
 
     # ---------------------------------------------------------
     # SAMARITAN VIEW 1: ACCEPT NEW REQUEST
     # ---------------------------------------------------------
     elif st.session_state.dashboard_view == "accept_request":
-        logged_in_samaritan.render_accept_request(user_info,conn)
+        logged_in_samaritan.render_accept_request(user_info, conn)
 
     # ---------------------------------------------------------
     # SAMARITAN VIEW 2: SEE ACCEPTED REQUESTS
     # ---------------------------------------------------------
     elif st.session_state.dashboard_view == "my_accepted_requests":
-        logged_in_samaritan.render_accepted_requests(user_info,conn)
+        logged_in_samaritan.render_accepted_requests(user_info, conn)
 
     # ---------------------------------------------------------
     # SAMARITAN VIEW 3: 50-MILE RADIUS SEARCH
     # ---------------------------------------------------------
     elif st.session_state.dashboard_view == "matched_requests":
-        logged_in_samaritan.render_matched_requests(user_info,conn)
+        logged_in_samaritan.render_matched_requests(user_info, conn)
 
 else:
 # ---------------------------------------------------------
@@ -158,6 +152,3 @@ else:
         logged_out_login.render(conn)
     elif page_action == "Register":
         logged_out_register.render(conn)
-
-
-

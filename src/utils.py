@@ -4,7 +4,11 @@ import pandas as pd
 import math
 import streamlit.components.v1 as components
 import uuid
+import json
+from pyzipcode import ZipCodeDatabase
 
+# Initialize PyZipCode Database once inside utils
+pcdb = ZipCodeDatabase()
 
 def render_dob_selector(key_prefix):
     # Date of Birth dropdown values
@@ -27,7 +31,7 @@ def render_dob_selector(key_prefix):
 
 
 # ---------------------------------------------------------
-# GEOGRAPHIC RADIUS HELPER (FIXED FOR US ZIP CODES WITH PYZIPCODE)
+# GEOGRAPHIC RADIUS HELPER
 # ---------------------------------------------------------
 def clean_zip_display(zip_val):
     """Formats zip values to remove decimal points from pandas parsing."""
@@ -36,7 +40,7 @@ def clean_zip_display(zip_val):
     return str(zip_val).split('.')[0].strip().zfill(5)
 
 
-def get_zip_distance(zip1, zip2, pcdb):
+def get_zip_distance(zip1, zip2):
     """Calculates straight-line distance in miles between two US zip codes."""
     try:
         z1_str = clean_zip_display(zip1)
@@ -69,15 +73,17 @@ def get_zip_distance(zip1, zip2, pcdb):
 # NOTIFICATION SYSTEM HELPERS
 # ---------------------------------------------------------
 def send_browser_push(title, body):
-    """Triggers a native browser push notification via JavaScript."""
+    """Triggers a native browser push notification via JavaScript safely."""
+    safe_title = json.dumps(str(title))
+    safe_body = json.dumps(str(body))
     js_code = f"""
     <script>
     if ("Notification" in window) {{
         if (Notification.permission === "granted") {{
-            new Notification("{title}", {{ body: "{body}" }});
+            new Notification({safe_title}, {{ body: {safe_body} }});
         }} else if (Notification.permission !== "denied") {{
             Notification.requestPermission().then(p => {{
-                if (p === "granted") new Notification("{title}", {{ body: "{body}" }});
+                if (p === "granted") new Notification({safe_title}, {{ body: {safe_body} }});
             }});
         }}
     }}
@@ -108,7 +114,7 @@ def create_notification(recipient_id, message, notif_type, conn):
     conn.update(worksheet="Notifications", data=updated_notifs_df)
 
 
-def render_notification_inbox(user_id,conn):
+def render_notification_inbox(user_id, conn):
     """Renders the Notification Inbox panel inside the dashboard."""
     st.write("### 🔔 Notification Inbox")
 

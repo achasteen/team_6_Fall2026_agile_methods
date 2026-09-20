@@ -5,6 +5,7 @@ import pandas as pd
 def render(conn):
     st.subheader("Account Registration")
     st.caption("Please fill out the information below to create your profile.")
+    st.caption("Warning: This is an app for educational purposes, please do not input any sensitive information.")
 
     role = st.selectbox("I am registering as a:", options=["User", "Samaritan"], key="account_role")
 

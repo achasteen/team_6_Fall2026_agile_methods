@@ -10,6 +10,15 @@ from pyzipcode import ZipCodeDatabase
 # Initialize PyZipCode Database
 pcdb = ZipCodeDatabase()
 
+def generate_secure_id():
+    """Returns a full, unguessable UUIDv4 string for use as a record ID.
+
+    IDs must never be truncated: short IDs are guessable and open the app
+    to enumeration / Insecure Direct Object Reference (IDOR) attacks.
+    """
+    return str(uuid.uuid4())
+
+
 def clean_zip_display(zip_val):
     """Formats zip values to remove decimal points from pandas parsing."""
     if pd.isna(zip_val) or not zip_val:
@@ -96,7 +105,7 @@ def create_notification(recipient_id, message, notif_type, conn):
         ])
 
     new_notif = pd.DataFrame([{
-        "notification_id": str(uuid.uuid4())[:8],
+        "notification_id": generate_secure_id(),
         "recipient_user_id": str(recipient_id),
         "message": message,
         "type": notif_type,

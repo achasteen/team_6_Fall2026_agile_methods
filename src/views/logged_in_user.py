@@ -1,6 +1,5 @@
 import streamlit as st
 import src.utils as utils
-import uuid
 import pandas as pd
 
 def render_menu():
@@ -38,7 +37,7 @@ def render_new_request(user_info, conn):
                 except Exception:
                     req_existing_df = pd.DataFrame()
 
-                request_id = str(uuid.uuid4())[:8]
+                request_id = utils.generate_secure_id()
 
                 req_new_row = pd.DataFrame([{
                     "request_id": request_id,

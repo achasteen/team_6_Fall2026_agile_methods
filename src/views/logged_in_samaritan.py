@@ -5,8 +5,8 @@ import math
 
 def calculate_zip_distance(zip1, zip2):
     """
-    Calculates approximate distance (miles) between two US zip codes.
-    Uses pypipcode/uszipcode if available, or falls back to standard approximate zip coordinate map.
+    Calculates distance between zip codes in miles.
+    Falls back gracefully if external distance libraries aren't installed.
     """
     try:
         from uszipcode import SearchEngine
@@ -14,7 +14,6 @@ def calculate_zip_distance(zip1, zip2):
         z1 = search.by_zipcode(zip1)
         z2 = search.by_zipcode(zip2)
         if z1.lat and z1.lng and z2.lat and z2.lng:
-            # Haversine distance
             lat1, lon1, lat2, lon2 = map(math.radians, [z1.lat, z1.lng, z2.lat, z2.lng])
             dlat, dlon = lat2 - lat1, lon2 - lon1
             a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
@@ -22,17 +21,15 @@ def calculate_zip_distance(zip1, zip2):
     except Exception:
         pass
 
-    # Simple fallback: exact match = 0 miles, numeric prefix proximity estimation
+    # Simple estimation fallback
     z1_str, z2_str = str(zip1).zfill(5), str(zip2).zfill(5)
     if z1_str == z2_str:
         return 0.0
     
-    # Prefix-based estimation fallback if distance library isn't installed
-    diff = abs(int(z1_str[:3]) - int(z2_str[:3]))
-    return diff * 12.5  # Rough estimation per prefix difference
+    prefix_diff = abs(int(z1_str[:3]) - int(z2_str[:3]))
+    return prefix_diff * 12.5
 
 def render_menu():
-    """Renders the main Samaritan navigation dashboard."""
     col1, col2 = st.columns(2)
 
     with col1:
@@ -46,9 +43,6 @@ def render_menu():
             st.rerun()
 
 def render_find_requests(user_info, conn):
-    """
-    Renders request search with Zip code search AND 50-mile radius filter.
-    """
     st.write("### Find Requests Near You")
     
     col_search, col_radius = st.columns([2, 1])
@@ -71,12 +65,10 @@ def render_find_requests(user_info, conn):
     if not all_requests_df.empty and search_zip_clean:
         all_requests_df['clean_zip'] = all_requests_df['zip'].apply(utils.clean_zip_display)
         
-        # Calculate distance for each request relative to the search Zip
         all_requests_df['distance_miles'] = all_requests_df['clean_zip'].apply(
             lambda z: calculate_zip_distance(search_zip_clean, z)
         )
         
-        # Filter for pending requests within the specified radius (e.g., 50 miles)
         available_requests = all_requests_df[
             (all_requests_df['status'].astype(str).str.lower() == 'pending') & 
             (all_requests_df['distance_miles'] <= max_radius)
@@ -103,6 +95,11 @@ def render_find_requests(user_info, conn):
                         if not req_idx.empty:
                             samaritan_full_name = f"{user_info.get('first_name', '')} {user_info.get('last_name', '')}".strip()
                             samaritan_id = str(user_info.get('user_id', '')).strip()
+
+                            # FIX: Cast target columns to 'object' dtype so string values aren't rejected by float columns
+                            for col in ['status', 'accepted_by', 'accepted_by_name', 'accepted_by_id']:
+                                if col in all_requests_df.columns:
+                                    all_requests_df[col] = all_requests_df[col].astype("object")
                             
                             all_requests_df.loc[req_idx, 'status'] = 'accepted'
                             all_requests_df.loc[req_idx, 'accepted_by'] = samaritan_full_name
@@ -133,9 +130,6 @@ def render_accept_request(user_info, conn):
     render_find_requests(user_info, conn)
 
 def render_accepted_requests(user_info, conn):
-    """
-    Renders the requests accepted by the Samaritan ("Requests I'm Helping With").
-    """
     st.write("### Requests You're Helping With")
 
     try:

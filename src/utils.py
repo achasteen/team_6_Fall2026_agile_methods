@@ -4,6 +4,13 @@ import numpy as np
 import uuid
 from datetime import datetime
 
+def generate_secure_id(prefix=""):
+    """
+    Generates a unique short ID string.
+    """
+    unique_id = str(uuid.uuid4())[:8]
+    return f"{prefix}_{unique_id}" if prefix else unique_id
+
 def clean_zip_display(zip_val):
     if pd.isna(zip_val) or not zip_val:
         return ""
@@ -66,7 +73,7 @@ def create_notification(conn, recipient_id, message, request_id=""):
         notif_df = pd.DataFrame(columns=["notif_id", "recipient_id", "message", "request_id", "is_read"])
 
     new_notif = pd.DataFrame([{
-        "notif_id": str(uuid.uuid4())[:8],
+        "notif_id": generate_secure_id("notif"),
         "recipient_id": str(recipient_id).strip(),
         "message": str(message),
         "request_id": str(request_id),
@@ -119,7 +126,7 @@ def render_notification_inbox(user_id, conn):
                 notif_id = row.get('notif_id', idx)
                 if st.button("Mark as Read", key=f"read_notif_{notif_id}"):
                     try:
-                        # Cast columns to string/object to avoid dtype mismatches
+                        # Cast columns to object type to avoid dtype mismatches
                         for col in notif_df.columns:
                             notif_df[col] = notif_df[col].astype("object")
 

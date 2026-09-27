@@ -14,7 +14,8 @@ def render(conn):
             return
 
         try:
-            user_existing_df = conn.read(worksheet="Users", ttl=0)
+            # Use short-term cached read to protect API rate limits
+            user_existing_df = utils.fetch_worksheet_cached(conn, "Users")
             
             # Ensure user_id column is treated as string and stripped of extra spaces
             user_existing_df['user_id'] = user_existing_df['user_id'].astype(str).str.strip()

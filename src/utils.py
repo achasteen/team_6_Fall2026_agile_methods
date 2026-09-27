@@ -40,6 +40,17 @@ def render_dob_selector(key_prefix="dob"):
 # RATE-LIMITING & API QUOTA PROTECTION
 # ---------------------------------------------------------
 
+def handle_db_error(e: Exception, default_msg: str = "Could not reach database."):
+    """
+    Parses database exceptions and displays a user-friendly error message,
+    intercepting raw Google Sheets 429 quota exhaustion errors.
+    """
+    err_str = str(e)
+    if any(indicator in err_str.lower() for indicator in ["429", "quota", "resource_exhausted", "rate_limit_exceeded"]):
+        st.error("⏳ Google Sheets traffic limit reached (60 requests/min). Please wait 30–60 seconds before trying again.")
+    else:
+        st.error(f"{default_msg} Error: {err_str}")
+
 def retry_api_call(max_retries=3, initial_delay=1.0, backoff_factor=2.0):
     """
     Decorator that retries a function if it encounters API quota/rate limit errors (HTTP 429/503).
@@ -54,7 +65,7 @@ def retry_api_call(max_retries=3, initial_delay=1.0, backoff_factor=2.0):
                     err_msg = str(e).lower()
                     if any(indicator in err_msg for indicator in ["429", "quota", "resource_exhausted", "503"]):
                         if attempt == max_retries:
-                            st.error("⚠️ Database is temporarily busy due to high traffic. Please try again in a few seconds.")
+                            st.error("⏳ Google Sheets traffic limit reached (60 requests/min). Please wait 30–60 seconds before trying again.")
                             raise e
                         sleep_time = delay + random.uniform(0, 0.5)
                         time.sleep(sleep_time)
@@ -73,7 +84,6 @@ def fetch_worksheet_cached(_conn, worksheet_name: str) -> pd.DataFrame:
     try:
         return _conn.read(worksheet=worksheet_name, ttl=0)
     except Exception as e:
-        st.warning(f"Unable to refresh data for '{worksheet_name}'. Showing cached data if available.")
         raise e
 
 @retry_api_call(max_retries=3, initial_delay=1.0)

@@ -49,4 +49,4 @@ def render(conn):
             else:
                 st.error("Invalid User ID.")
         except Exception as e:
-            st.error(f"Could not reach Users database. Error: {str(e)}")
+            utils.handle_db_error(e, "Could not reach Users database.")

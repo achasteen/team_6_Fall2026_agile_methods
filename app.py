@@ -1,9 +1,13 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
+
 import src.utils as utils
 import src.views.logged_in_samaritan as logged_in_samaritan
-# ... import other views as needed ...
+import src.views.logged_in_user as logged_in_user
+import src.views.logged_out_login as logged_out_login
+import src.views.logged_out_register as logged_out_register
 
-# Initialize connection and session state
+# Initialize connection
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 if "logged_in" not in st.session_state:

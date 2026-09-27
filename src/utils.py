@@ -12,11 +12,19 @@ def clean_zip_display(zip_val):
     except Exception:
         return str(zip_val)
 
-def fetch_worksheet_cached(conn, worksheet_name):
-    return conn.read(worksheet=worksheet_name, ttl=0)
+def fetch_worksheet_cached(conn, worksheet_name, ttl=5):
+    """
+    Fetches worksheet data with 5s caching to prevent hitting 
+    Google Sheets 60 req/min API quota limits.
+    """
+    return conn.read(worksheet=worksheet_name, ttl=ttl)
 
 def safe_update_worksheet(conn, worksheet_name, df):
+    """
+    Updates Google Sheets and clears Streamlit's cache so fresh data loads immediately.
+    """
     conn.update(worksheet=worksheet_name, data=df)
+    st.cache_data.clear()
 
 def handle_db_error(e, fallback_msg):
     st.error(f"{fallback_msg} Error: {e}")
@@ -47,7 +55,7 @@ def render_dob_selector(key_prefix="dob"):
 
 def create_notification(conn, recipient_id, message, request_id=""):
     try:
-        notif_df = fetch_worksheet_cached(conn, "Notifications")
+        notif_df = fetch_worksheet_cached(conn, "Notifications", ttl=0)
     except Exception:
         notif_df = pd.DataFrame(columns=["notif_id", "recipient_id", "message", "request_id", "is_read"])
 
@@ -69,7 +77,7 @@ def render_notification_inbox(user_id, conn):
     st.write("### Notifications")
 
     try:
-        notif_df = fetch_worksheet_cached(conn, "Notifications")
+        notif_df = fetch_worksheet_cached(conn, "Notifications", ttl=5)
     except Exception as e:
         st.caption("No notifications system found or failed to load.")
         return
@@ -105,7 +113,6 @@ def render_notification_inbox(user_id, conn):
                 notif_id = row.get('notif_id', idx)
                 if st.button("Mark as Read", key=f"read_notif_{notif_id}"):
                     try:
-                        # Convert column to object type to avoid dtype issues
                         notif_df['is_read'] = notif_df['is_read'].astype("object")
                         
                         target_idx = notif_df[notif_df['notif_id'].astype(str) == str(notif_id)].index

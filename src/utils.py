@@ -12,6 +12,9 @@ def generate_secure_id(prefix=""):
     return f"{prefix}_{unique_id}" if prefix else unique_id
 
 def clean_zip_display(zip_val):
+    """
+    Cleans and formats zip codes to 5-digit strings.
+    """
     if pd.isna(zip_val) or not zip_val:
         return ""
     try:
@@ -65,6 +68,9 @@ def render_dob_selector(key_prefix="dob"):
     return f"{year:04d}-{month_num:02d}-{day:02d}"
 
 def create_notification(conn, recipient_id, message, request_id=""):
+    """
+    Creates a new notification entry and appends it to the Notifications worksheet.
+    """
     try:
         notif_df = fetch_worksheet_cached(conn, "Notifications", ttl=0)
     except Exception:
@@ -88,7 +94,7 @@ def render_notification_inbox(user_id, conn):
     st.write("### Notifications")
 
     try:
-        # Fetch fresh data from Google Sheets
+        # Read live data from Google Sheets without caching
         notif_df = conn.read(worksheet="Notifications", ttl=0)
     except Exception as e:
         st.caption("No notifications system found or failed to load.")
@@ -98,48 +104,76 @@ def render_notification_inbox(user_id, conn):
         st.info("No new notifications.")
         return
 
-    # Store exact original row index before any filtering
-    notif_df['_row_idx'] = notif_df.index
+    # 1. Normalize column headers
+    notif_df.columns = [str(col).strip() for col in notif_df.columns]
 
-    # Ensure all required columns exist and are clean strings
+    # 2. Ensure all required columns exist
     required_cols = ['notif_id', 'recipient_id', 'message', 'request_id', 'is_read']
     for col in required_cols:
         if col not in notif_df.columns:
             notif_df[col] = ""
-        notif_df[col] = notif_df[col].fillna("").astype(str).str.strip()
 
     user_id_str = str(user_id).strip()
 
-    # Filter unread notifications for current user
+    # 3. Clean recipient IDs and Notification IDs as clean strings
+    notif_df['recipient_id'] = notif_df['recipient_id'].fillna("").astype(str).str.strip()
+    notif_df['notif_id'] = notif_df['notif_id'].fillna("").astype(str).str.strip()
+
+    # 4. Robust Boolean Conversion for 'is_read'
+    # Handles Python bool (True/False), Strings ("TRUE"/"FALSE"), and Ints (1/0)
+    def parse_is_read(val):
+        if pd.isna(val):
+            return False
+        if isinstance(val, bool):
+            return val
+        val_str = str(val).strip().upper()
+        return val_str in ['TRUE', '1', 'YES', 'READ']
+
+    notif_df['is_read_bool'] = notif_df['is_read'].apply(parse_is_read)
+
+    # 5. Session state tracking for instant UI dismissal
+    if "dismissed_notifs" not in st.session_state:
+        st.session_state.dismissed_notifs = set()
+
+    # 6. Filter ONLY true unread items for this user
     unread_mask = (
         (notif_df['recipient_id'] == user_id_str) & 
-        (~notif_df['is_read'].str.upper().isin(['TRUE', '1', 'YES', 'READ']))
+        (~notif_df['is_read_bool']) & 
+        (~notif_df['notif_id'].isin(st.session_state.dismissed_notifs))
     )
-    user_unread = notif_df[unread_mask].copy()
+    
+    user_unread = notif_df[unread_mask]
 
     if user_unread.empty:
         st.info("No unread notifications.")
     else:
-        for _, row in user_unread.iterrows():
+        for orig_idx, row in user_unread.iterrows():
             col_msg, col_btn = st.columns([3.5, 1.2])
-            target_row = row['_row_idx']
-            notif_id = row['notif_id'] if row['notif_id'] else str(target_row)
+            notif_id = row['notif_id'] if row['notif_id'] else f"row_{orig_idx}"
             
             with col_msg:
                 st.info(f"📩 {row['message']}")
                 
             with col_btn:
-                if st.button("Mark as Read", key=f"btn_read_{notif_id}_{target_row}"):
+                if st.button("Mark as Read", key=f"btn_mark_read_{notif_id}_{orig_idx}"):
                     try:
-                        # Update 'is_read' on main DataFrame using original row index
-                        notif_df.loc[target_row, 'is_read'] = 'TRUE'
+                        # Hide immediately on client side
+                        st.session_state.dismissed_notifs.add(notif_id)
 
-                        # Remove internal row tracker before saving
-                        save_df = notif_df.drop(columns=['_row_idx'])
+                        # Update target row in DataFrame
+                        notif_df.loc[orig_idx, 'is_read'] = 'TRUE'
+
+                        # Drop temporary helper column before saving
+                        save_df = notif_df.drop(columns=['is_read_bool'])
+
+                        # Convert object columns to standard string types for Google Sheets
+                        for col in save_df.columns:
+                            save_df[col] = save_df[col].astype(str)
 
                         # Save back to Google Sheets & clear Streamlit cache
                         safe_update_worksheet(conn, "Notifications", save_df)
-                        st.cache_data.clear()
+                        
+                        st.success("Marked as read!")
                         st.rerun()
                     except Exception as e:
                         handle_db_error(e, "Could not update notification status.")

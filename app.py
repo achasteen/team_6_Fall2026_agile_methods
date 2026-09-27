@@ -10,13 +10,13 @@ import src.views.logged_out_register as logged_out_register
 # 1. Page Configuration
 st.set_page_config(page_title="Samaritan Services", page_icon="🤝", layout="centered")
 
-# 2. Background Image & Container CSS
+# 2. High-Contrast White Background Card & Container CSS
 st.markdown(
     """
     <style>
-    /* Full-screen Background with Light Overlay */
+    /* Full-screen Background with Subtle Overlay */
     .stApp {
-        background: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.55)), 
+        background: linear-gradient(rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.25)),
                     url("https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1600&q=80");
         background-size: cover;
         background-position: center;
@@ -24,12 +24,21 @@ st.markdown(
         background-attachment: fixed;
     }
 
-    /* Styled Semi-Transparent Cards for Readability */
-    [data-testid="stVerticalBlock"] > div > div[data-testid="stBlock"] {
-        background-color: rgba(255, 255, 255, 0.88);
-        border-radius: 12px;
-        padding: 1.25rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    /* Solid White Card wrapping the main application content */
+    [data-testid="stMainBlockContainer"] {
+        background-color: rgba(255, 255, 255, 0.95);
+        border-radius: 16px;
+        padding: 2.5rem 2rem !important;
+        margin-top: 2rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+    }
+
+    /* Styled Expander Containers */
+    div[data-testid="stExpander"] {
+        background-color: #ffffff;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
     }
     </style>
     """,

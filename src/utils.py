@@ -5,9 +5,7 @@ import uuid
 from datetime import datetime
 
 def generate_secure_id(prefix=""):
-    """
-    Generates a unique short ID string.
-    """
+    """Generates a unique short ID string."""
     unique_id = str(uuid.uuid4())[:8]
     return f"{prefix}_{unique_id}" if prefix else unique_id
 
@@ -33,7 +31,6 @@ def safe_update_worksheet(conn, worksheet_name, df):
     JSON compliance errors, then clears Streamlit's cache.
     """
     clean_df = df.copy()
-    # Replace infinite values and NaNs with empty strings to keep JSON payload valid
     clean_df = clean_df.replace([np.inf, -np.inf], np.nan).fillna("")
     
     conn.update(worksheet=worksheet_name, data=clean_df)
@@ -43,10 +40,7 @@ def handle_db_error(e, fallback_msg):
     st.error(f"{fallback_msg} Error: {e}")
 
 def render_dob_selector(key_prefix="dob"):
-    """
-    Renders standard dropdowns for selecting Date of Birth (Month, Day, Year)
-    and returns a formatted string 'YYYY-MM-DD'.
-    """
+    """Renders standard dropdowns for Date of Birth selection."""
     col_m, col_d, col_y = st.columns(3)
     
     months = [
@@ -85,31 +79,35 @@ def create_notification(conn, recipient_id, message, request_id=""):
 
 def render_notification_inbox(user_id, conn):
     """
-    Renders unread notifications specifically for user_id and provides a button to mark as read.
+    Renders unread notifications specifically for user_id and provides an instant button to mark as read.
     """
     st.write("### Notifications")
 
     try:
-        notif_df = fetch_worksheet_cached(conn, "Notifications", ttl=5)
+        # Bypasses cache specifically for notifications so read items disappear immediately
+        notif_df = conn.read(worksheet="Notifications", ttl=0)
     except Exception as e:
         st.caption("No notifications system found or failed to load.")
         return
 
-    if notif_df.empty:
+    if notif_df is None or notif_df.empty:
         st.info("No new notifications.")
         return
 
     user_id_str = str(user_id).strip()
 
-    # Ensure required columns exist in dataframe
+    # Ensure required columns exist
     for col in ['recipient_id', 'is_read', 'message', 'notif_id']:
         if col not in notif_df.columns:
             notif_df[col] = ""
 
+    # Clean missing or blank values in 'is_read'
+    notif_df['is_read'] = notif_df['is_read'].fillna("FALSE").astype(str).str.strip()
+
     # Filter for unread notifications belonging ONLY to current user
     unread_mask = (
         (notif_df['recipient_id'].astype(str).str.strip() == user_id_str) & 
-        (~notif_df['is_read'].astype(str).str.upper().isin(['TRUE', '1', 'YES', 'READ']))
+        (~notif_df['is_read'].str.upper().isin(['TRUE', '1', 'YES', 'READ']))
     )
     user_unread = notif_df[unread_mask].copy()
 
@@ -123,20 +121,20 @@ def render_notification_inbox(user_id, conn):
                 st.info(f"📩 {row.get('message', 'Notification')}")
                 
             with col_btn:
-                notif_id = row.get('notif_id', idx)
+                notif_id = str(row.get('notif_id', idx))
                 if st.button("Mark as Read", key=f"read_notif_{notif_id}"):
                     try:
-                        # Cast columns to object type to avoid dtype mismatches
                         for col in notif_df.columns:
                             notif_df[col] = notif_df[col].astype("object")
 
-                        target_idx = notif_df[notif_df['notif_id'].astype(str) == str(notif_id)].index
+                        target_idx = notif_df[notif_df['notif_id'].astype(str) == notif_id].index
                         if not target_idx.empty:
                             notif_df.loc[target_idx, 'is_read'] = 'TRUE'
                         else:
                             notif_df.loc[idx, 'is_read'] = 'TRUE'
 
                         safe_update_worksheet(conn, "Notifications", notif_df)
+                        st.cache_data.clear()
                         st.success("Marked as read!")
                         st.rerun()
                     except Exception as e:

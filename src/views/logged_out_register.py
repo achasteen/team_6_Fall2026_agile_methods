@@ -13,7 +13,6 @@ def render(conn):
     reg_password = st.text_input("Password", type="password", key="reg_password")
 
     first_name = st.text_input("First Name", key="reg_first")
-    # middle_name = st.text_input("Middle Name or Initial", key="reg_middle")
     last_name = st.text_input("Last Name", key="reg_last")
 
     dob_str = utils.render_dob_selector("reg_dob")
@@ -25,19 +24,15 @@ def render(conn):
 
     if role == "Samaritan":
         services = st.text_area("Services you would like to offer", key="reg_services")
-        # uploaded_file = st.file_uploader("Upload a picture of driver's license", type=["jpeg", "jpg", "png"],
-        #                                  key="reg_dl_pic")
     else:
         services = ""
-        # uploaded_file = st.file_uploader("Upload any form of ID to verify information",
-        #                                  type=["jpeg", "jpg", "png", "pdf"], key="reg_user_id_doc")
 
     if st.button("Submit Registration"):
         if not reg_user_id or not reg_password:
             st.error("Please fill in both User ID and Password.")
         else:
             try:
-                user_existing_df = conn.read(worksheet="Users", ttl=0)
+                user_existing_df = utils.fetch_worksheet_cached(conn, "Users")
             except Exception:
                 user_existing_df = pd.DataFrame(columns=[
                     "user_id", "password", "role", "first_name", "last_name", "city", "state", "zip", "services"
@@ -59,5 +54,7 @@ def render(conn):
                 }])
 
                 user_updated_df = pd.concat([user_existing_df, user_new_row], ignore_index=True)
-                conn.update(worksheet="Users", data=user_updated_df)
+                
+                # Safe update with automated retries and cache invalidation
+                utils.safe_update_worksheet(conn, "Users", user_updated_df)
                 st.success(f"Registered successfully as {role}! You can now log in.")

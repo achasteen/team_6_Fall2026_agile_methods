@@ -5,7 +5,9 @@ import uuid
 from datetime import datetime
 
 def generate_secure_id(prefix=""):
-    """Generates a unique short ID string."""
+    """
+    Generates a unique short ID string.
+    """
     unique_id = str(uuid.uuid4())[:8]
     return f"{prefix}_{unique_id}" if prefix else unique_id
 
@@ -21,7 +23,7 @@ def clean_zip_display(zip_val):
 def fetch_worksheet_cached(conn, worksheet_name, ttl=5):
     """
     Fetches worksheet data with 5s caching to prevent hitting 
-    Google Sheets 60 req/min API quota limits.
+    Google Sheets API 60 req/min rate limits.
     """
     return conn.read(worksheet=worksheet_name, ttl=ttl)
 
@@ -40,7 +42,9 @@ def handle_db_error(e, fallback_msg):
     st.error(f"{fallback_msg} Error: {e}")
 
 def render_dob_selector(key_prefix="dob"):
-    """Renders standard dropdowns for Date of Birth selection."""
+    """
+    Renders standard dropdowns for Date of Birth selection (Month, Day, Year).
+    """
     col_m, col_d, col_y = st.columns(3)
     
     months = [
@@ -79,12 +83,12 @@ def create_notification(conn, recipient_id, message, request_id=""):
 
 def render_notification_inbox(user_id, conn):
     """
-    Renders unread notifications specifically for user_id and provides an instant button to mark as read.
+    Renders unread notifications specifically for user_id and updates Google Sheets directly.
     """
     st.write("### Notifications")
 
     try:
-        # Bypasses cache specifically for notifications so read items disappear immediately
+        # Fetch fresh data from Google Sheets
         notif_df = conn.read(worksheet="Notifications", ttl=0)
     except Exception as e:
         st.caption("No notifications system found or failed to load.")
@@ -94,19 +98,21 @@ def render_notification_inbox(user_id, conn):
         st.info("No new notifications.")
         return
 
-    user_id_str = str(user_id).strip()
+    # Store exact original row index before any filtering
+    notif_df['_row_idx'] = notif_df.index
 
-    # Ensure required columns exist
-    for col in ['recipient_id', 'is_read', 'message', 'notif_id']:
+    # Ensure all required columns exist and are clean strings
+    required_cols = ['notif_id', 'recipient_id', 'message', 'request_id', 'is_read']
+    for col in required_cols:
         if col not in notif_df.columns:
             notif_df[col] = ""
+        notif_df[col] = notif_df[col].fillna("").astype(str).str.strip()
 
-    # Clean missing or blank values in 'is_read'
-    notif_df['is_read'] = notif_df['is_read'].fillna("FALSE").astype(str).str.strip()
+    user_id_str = str(user_id).strip()
 
-    # Filter for unread notifications belonging ONLY to current user
+    # Filter unread notifications for current user
     unread_mask = (
-        (notif_df['recipient_id'].astype(str).str.strip() == user_id_str) & 
+        (notif_df['recipient_id'] == user_id_str) & 
         (~notif_df['is_read'].str.upper().isin(['TRUE', '1', 'YES', 'READ']))
     )
     user_unread = notif_df[unread_mask].copy()
@@ -114,28 +120,26 @@ def render_notification_inbox(user_id, conn):
     if user_unread.empty:
         st.info("No unread notifications.")
     else:
-        for idx, row in user_unread.iterrows():
+        for _, row in user_unread.iterrows():
             col_msg, col_btn = st.columns([3.5, 1.2])
+            target_row = row['_row_idx']
+            notif_id = row['notif_id'] if row['notif_id'] else str(target_row)
             
             with col_msg:
-                st.info(f"📩 {row.get('message', 'Notification')}")
+                st.info(f"📩 {row['message']}")
                 
             with col_btn:
-                notif_id = str(row.get('notif_id', idx))
-                if st.button("Mark as Read", key=f"read_notif_{notif_id}"):
+                if st.button("Mark as Read", key=f"btn_read_{notif_id}_{target_row}"):
                     try:
-                        for col in notif_df.columns:
-                            notif_df[col] = notif_df[col].astype("object")
+                        # Update 'is_read' on main DataFrame using original row index
+                        notif_df.loc[target_row, 'is_read'] = 'TRUE'
 
-                        target_idx = notif_df[notif_df['notif_id'].astype(str) == notif_id].index
-                        if not target_idx.empty:
-                            notif_df.loc[target_idx, 'is_read'] = 'TRUE'
-                        else:
-                            notif_df.loc[idx, 'is_read'] = 'TRUE'
+                        # Remove internal row tracker before saving
+                        save_df = notif_df.drop(columns=['_row_idx'])
 
-                        safe_update_worksheet(conn, "Notifications", notif_df)
+                        # Save back to Google Sheets & clear Streamlit cache
+                        safe_update_worksheet(conn, "Notifications", save_df)
                         st.cache_data.clear()
-                        st.success("Marked as read!")
                         st.rerun()
                     except Exception as e:
                         handle_db_error(e, "Could not update notification status.")

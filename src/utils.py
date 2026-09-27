@@ -98,6 +98,30 @@ def safe_update_worksheet(conn, worksheet_name: str, data: pd.DataFrame):
 # NOTIFICATIONS & INBOX
 # ---------------------------------------------------------
 
+def create_notification(conn, recipient_id: str, message: str, request_id: str = ""):
+    """
+    Creates a new notification entry for a user.
+    """
+    try:
+        try:
+            notif_df = fetch_worksheet_cached(conn, "Notifications")
+        except Exception:
+            notif_df = pd.DataFrame(columns=["notification_id", "recipient_id", "message", "request_id", "read"])
+
+        new_notif = pd.DataFrame([{
+            "notification_id": generate_secure_id(),
+            "recipient_id": str(recipient_id),
+            "message": message,
+            "request_id": str(request_id),
+            "read": False
+        }])
+
+        updated_notif_df = pd.concat([notif_df, new_notif], ignore_index=True)
+        safe_update_worksheet(conn, "Notifications", updated_notif_df)
+    except Exception as e:
+        # Non-critical write: catch error gracefully so main request workflow completes
+        st.warning("Request status was updated, but notification could not be recorded.")
+
 def render_notification_inbox(user_id: str, conn):
     """
     Renders notification alerts for the currently logged-in user.

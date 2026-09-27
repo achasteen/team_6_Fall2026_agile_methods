@@ -42,7 +42,15 @@ def safe_update_worksheet(conn, worksheet_name, df):
     st.cache_data.clear()
 
 def handle_db_error(e, fallback_msg):
-    st.error(f"{fallback_msg} Error: {e}")
+    """
+    Renders user-friendly error messages for database and rate-limit errors.
+    """
+    err_str = str(e)
+    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "RATE_LIMIT_EXHAUSTED" in err_str:
+        st.warning("⚠️ **Database is busy.** High traffic detected—please wait a few seconds and try again.")
+    else:
+        st.error(f"{fallback_msg} Please try again in a moment.")
+        st.caption(f"Details: {err_str[:120]}...")  # Truncates long raw traces
 
 def render_dob_selector(key_prefix="dob"):
     """

@@ -113,6 +113,10 @@ def render_notification_inbox(user_id, conn):
         if col not in notif_df.columns:
             notif_df[col] = ""
 
+    # Force columns to string object types to avoid float64 type mismatch errors
+    for col in notif_df.columns:
+        notif_df[col] = notif_df[col].astype("object")
+
     user_id_str = str(user_id).strip()
 
     # 3. Clean recipient IDs and Notification IDs as clean strings
@@ -160,7 +164,8 @@ def render_notification_inbox(user_id, conn):
                         # Hide immediately on client side
                         st.session_state.dismissed_notifs.add(notif_id)
 
-                        # Update target row in DataFrame
+                        # Explicitly ensure column is string-compatible before assignment
+                        notif_df['is_read'] = notif_df['is_read'].astype("object")
                         notif_df.loc[orig_idx, 'is_read'] = 'TRUE'
 
                         # Drop temporary helper column before saving

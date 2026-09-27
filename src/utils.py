@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import uuid
 from datetime import datetime
 
@@ -21,9 +22,14 @@ def fetch_worksheet_cached(conn, worksheet_name, ttl=5):
 
 def safe_update_worksheet(conn, worksheet_name, df):
     """
-    Updates Google Sheets and clears Streamlit's cache so fresh data loads immediately.
+    Cleans out any NaN/inf values before updating Google Sheets to avoid
+    JSON compliance errors, then clears Streamlit's cache.
     """
-    conn.update(worksheet=worksheet_name, data=df)
+    clean_df = df.copy()
+    # Replace infinite values and NaNs with empty strings to keep JSON payload valid
+    clean_df = clean_df.replace([np.inf, -np.inf], np.nan).fillna("")
+    
+    conn.update(worksheet=worksheet_name, data=clean_df)
     st.cache_data.clear()
 
 def handle_db_error(e, fallback_msg):
@@ -113,8 +119,10 @@ def render_notification_inbox(user_id, conn):
                 notif_id = row.get('notif_id', idx)
                 if st.button("Mark as Read", key=f"read_notif_{notif_id}"):
                     try:
-                        notif_df['is_read'] = notif_df['is_read'].astype("object")
-                        
+                        # Cast columns to string/object to avoid dtype mismatches
+                        for col in notif_df.columns:
+                            notif_df[col] = notif_df[col].astype("object")
+
                         target_idx = notif_df[notif_df['notif_id'].astype(str) == str(notif_id)].index
                         if not target_idx.empty:
                             notif_df.loc[target_idx, 'is_read'] = 'TRUE'

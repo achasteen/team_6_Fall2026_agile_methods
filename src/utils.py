@@ -93,3 +93,32 @@ def safe_update_worksheet(conn, worksheet_name: str, data: pd.DataFrame):
     """
     conn.update(worksheet=worksheet_name, data=data)
     fetch_worksheet_cached.clear()
+
+# ---------------------------------------------------------
+# NOTIFICATIONS & INBOX
+# ---------------------------------------------------------
+
+def render_notification_inbox(user_id: str, conn):
+    """
+    Renders notification alerts for the currently logged-in user.
+    """
+    st.markdown("### 🔔 Notifications")
+    try:
+        all_requests_df = fetch_worksheet_cached(conn, "Requests")
+        
+        # Check if user has any accepted requests
+        user_accepted_requests = all_requests_df[
+            (all_requests_df['requested_by_id'].astype(str) == str(user_id)) &
+            (all_requests_df['status'].astype(str).str.lower() == 'accepted')
+        ]
+
+        if not user_accepted_requests.empty:
+            for idx, row in user_accepted_requests.iterrows():
+                samaritan_name = row.get('accepted_by_name', 'A Samaritan')
+                req_title = row.get('request_name', 'your request')
+                st.success(f"🎉 **{samaritan_name}** has accepted your request: **{req_title}**!")
+        else:
+            st.info("No new notifications.")
+
+    except Exception as e:
+        handle_db_error(e, "Could not load notifications.")

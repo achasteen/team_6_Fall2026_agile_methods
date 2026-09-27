@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import uuid
+from datetime import datetime
 
 def clean_zip_display(zip_val):
     if pd.isna(zip_val) or not zip_val:
@@ -19,6 +20,30 @@ def safe_update_worksheet(conn, worksheet_name, df):
 
 def handle_db_error(e, fallback_msg):
     st.error(f"{fallback_msg} Error: {e}")
+
+def render_dob_selector(key_prefix="dob"):
+    """
+    Renders standard dropdowns for selecting Date of Birth (Month, Day, Year)
+    and returns a formatted string 'YYYY-MM-DD'.
+    """
+    col_m, col_d, col_y = st.columns(3)
+    
+    months = [
+        "January", "February", "March", "April", "May", "June", 
+        "July", "August", "September", "October", "November", "December"
+    ]
+    current_year = datetime.now().year
+    years = list(range(current_year - 100, current_year + 1))[::-1]
+    
+    with col_m:
+        month = st.selectbox("Month", options=months, key=f"{key_prefix}_month")
+    with col_d:
+        day = st.selectbox("Day", options=list(range(1, 32)), key=f"{key_prefix}_day")
+    with col_y:
+        year = st.selectbox("Year", options=years, key=f"{key_prefix}_year")
+
+    month_num = months.index(month) + 1
+    return f"{year:04d}-{month_num:02d}-{day:02d}"
 
 def create_notification(conn, recipient_id, message, request_id=""):
     try:
@@ -80,7 +105,7 @@ def render_notification_inbox(user_id, conn):
                 notif_id = row.get('notif_id', idx)
                 if st.button("Mark as Read", key=f"read_notif_{notif_id}"):
                     try:
-                        # Convert columns to object type to avoid pandas dtype conversion issues
+                        # Convert column to object type to avoid dtype issues
                         notif_df['is_read'] = notif_df['is_read'].astype("object")
                         
                         target_idx = notif_df[notif_df['notif_id'].astype(str) == str(notif_id)].index

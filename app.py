@@ -7,13 +7,39 @@ import src.views.logged_in_user as logged_in_user
 import src.views.logged_out_login as logged_out_login
 import src.views.logged_out_register as logged_out_register
 
-# 1. Initialize Streamlit Page Config
+# 1. Page Configuration
 st.set_page_config(page_title="Samaritan Services", page_icon="🤝", layout="centered")
 
-# 2. Establish Google Sheets Connection
+# 2. Background Image & Container CSS
+st.markdown(
+    """
+    <style>
+    /* Full-screen Background with Light Overlay */
+    .stApp {
+        background: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.55)), 
+                    url("https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1600&q=80");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }
+
+    /* Styled Semi-Transparent Cards for Readability */
+    [data-testid="stVerticalBlock"] > div > div[data-testid="stBlock"] {
+        background-color: rgba(255, 255, 255, 0.88);
+        border-radius: 12px;
+        padding: 1.25rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# 3. Establish Google Sheets Connection
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 3. Initialize Session States
+# 4. Session State Initialization
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -42,13 +68,13 @@ if st.session_state.logged_in and st.session_state.current_user:
 
     st.divider()
 
-    # Notification Inbox Expander
+    # Notification Inbox
     with st.expander("🔔 Notification Inbox", expanded=True):
         utils.render_notification_inbox(user_info["user_id"], conn)
 
     st.divider()
 
-    # ROUTING BASED ON ROLE & DASHBOARD VIEW
+    # View Router
     view = st.session_state.get("dashboard_view", "menu")
 
     if user_role == "Samaritan":
@@ -62,7 +88,7 @@ if st.session_state.logged_in and st.session_state.current_user:
         else:
             logged_in_samaritan.render_menu()
 
-    else:  # Standard "User" Role
+    else:  # Standard User
         if view == "menu":
             st.subheader("Choose an Action")
             logged_in_user.render_menu()
@@ -74,7 +100,7 @@ if st.session_state.logged_in and st.session_state.current_user:
             logged_in_user.render_menu()
 
 # ---------------------------------------------------------
-# LOGGED OUT FLOW (LOGIN / REGISTER TABS)
+# LOGGED OUT FLOW
 # ---------------------------------------------------------
 else:
     st.title("🤝 Welcome to Samaritan Services")

@@ -30,6 +30,12 @@ def fetch_worksheet_cached(conn, worksheet_name, ttl=5):
     """
     return conn.read(worksheet=worksheet_name, ttl=ttl)
 
+def sanitize_for_csv(value):
+    formula_triggers = ("=", "+", "-", "@", "\t", "\r")
+    if isinstance(value, str) and value.startswith(formula_triggers):
+        return "'" + value
+    return value
+
 def safe_update_worksheet(conn, worksheet_name, df):
     """
     Cleans out any NaN/inf values before updating Google Sheets to avoid
@@ -37,7 +43,8 @@ def safe_update_worksheet(conn, worksheet_name, df):
     """
     clean_df = df.copy()
     clean_df = clean_df.replace([np.inf, -np.inf], np.nan).fillna("")
-    
+    clean_df = clean_df.apply(lambda col: col.map(sanitize_for_csv))
+
     conn.update(worksheet=worksheet_name, data=clean_df)
     st.cache_data.clear()
 

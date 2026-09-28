@@ -2,6 +2,21 @@ import streamlit as st
 import pandas as pd
 import src.utils as utils
 
+def _upgrade_legacy_password(conn, user_id, plain_password):
+    """
+    Replaces a legacy plaintext password with a bcrypt hash.
+    Failures are non-fatal: the user is still logged in and migration retries next login.
+    """
+    try:
+        users_df = utils.fetch_worksheet_cached(conn, "Users", ttl=0)
+        id_mask = users_df['user_id'].astype(str).str.strip() == user_id
+        if id_mask.any():
+            users_df['password'] = users_df['password'].astype("object")
+            users_df.loc[id_mask, 'password'] = utils.hash_password(plain_password)
+            utils.safe_update_worksheet(conn, "Users", users_df)
+    except Exception:
+        pass
+
 def render(conn):
     st.subheader("Login to Your Account")
 
@@ -24,9 +39,14 @@ def render(conn):
             if not user_match.empty:
                 # Convert row to dictionary
                 matched_row = user_match.iloc[0].to_dict()
-                stored_pass = str(matched_row.get('password', '')).strip()
+                is_valid, needs_rehash = utils.verify_password(
+                    str(login_pass).strip(), matched_row.get('password', '')
+                )
 
-                if str(login_pass).strip() == stored_pass:
+                if is_valid:
+                    if needs_rehash:
+                        _upgrade_legacy_password(conn, str(login_id).strip(), str(login_pass).strip())
+
                     st.session_state.logged_in = True
                     
                     # Safely extract user attributes with fallback defaults for missing/NaN values

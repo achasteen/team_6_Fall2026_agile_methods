@@ -10,40 +10,53 @@ import src.views.logged_out_register as logged_out_register
 # 1. Page Configuration
 st.set_page_config(page_title="Samaritan Services", page_icon="🤝", layout="centered")
 
-# 2. High-Contrast White Background Card & Container CSS
-st.markdown(
-    """
-    <style>
-    /* Full-screen Background with Subtle Overlay */
-    .stApp {
-        background: linear-gradient(rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.25)),
-                    url("https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1600&q=80");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-        background-attachment: fixed;
-    }
+# Custom CSS for background and styling
+page_bg = """
+<style>
+[data-testid="stAppViewContainer"] {
+    background-image: url("https://images.unsplash.com/photo-1500530855697-b586d89ba3ee");
+    background-size: cover;
+    background-position: center;
+}
 
-    /* Solid White Card wrapping the main application content */
-    [data-testid="stMainBlockContainer"] {
-        background-color: rgba(255, 255, 255, 0.95);
-        border-radius: 16px;
-        padding: 2.5rem 2rem !important;
-        margin-top: 2rem;
-        margin-bottom: 2rem;
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
-    }
+[data-testid="stVerticalBlock"] {
+    background-color: rgba(255, 255, 255, 0.85);
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.2);
+}
 
-    /* Styled Expander Containers */
-    div[data-testid="stExpander"] {
-        background-color: #ffffff;
-        border-radius: 8px;
-        border: 1px solid #e0e0e0;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+h1 {
+    text-align: center;
+    color: black;
+    background-color: rgba(255, 255, 255, 0.9);
+    padding: 10px 20px;
+    border-radius: 8px;
+    box-shadow: 0 0 8px rgba(0,0,0,0.3);
+    font-family: 'Arial Black', sans-serif;
+}
+
+[data-testid="stVerticalBlock"] p,
+[data-testid="stVerticalBlock"] span,
+[data-testid="stVerticalBlock"] label,
+[data-testid="stVerticalBlock"] li,
+[data-testid="stVerticalBlock"] h1,
+[data-testid="stVerticalBlock"] h2,
+[data-testid="stVerticalBlock"] h3,
+[data-testid="stVerticalBlock"] h4 {
+    color: black !important;
+    font-weight: bold;
+}
+
+[data-testid="stVerticalBlock"] button {
+    color: black !important;
+    background-color: white !important;
+    border: 1px solid #999 !important;
+}
+</style>
+"""
+
+st.markdown(page_bg, unsafe_allow_html=True)
 
 # 3. Establish Google Sheets Connection
 conn = st.connection("gsheets", type=GSheetsConnection)

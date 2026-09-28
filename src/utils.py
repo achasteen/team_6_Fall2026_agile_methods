@@ -2,7 +2,48 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import uuid
+import hmac
+import bcrypt
 from datetime import datetime
+
+# bcrypt only uses the first 72 bytes of input; longer passwords are rejected
+BCRYPT_MAX_BYTES = 72
+BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$")
+
+def hash_password(plain_password):
+    """
+    Hashes a plaintext password with bcrypt (salted). Returns the hash as a string.
+    """
+    return bcrypt.hashpw(str(plain_password).encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def is_bcrypt_hash(value):
+    """
+    Returns True if the value looks like a bcrypt hash.
+    """
+    return isinstance(value, str) and value.startswith(BCRYPT_PREFIXES)
+
+def verify_password(plain_password, stored_value):
+    """
+    Checks a plaintext password against the stored value.
+    Supports legacy plaintext records so they can be migrated on next login.
+    Returns (is_valid, needs_rehash).
+    """
+    if pd.isna(stored_value):
+        return False, False
+    stored = str(stored_value).strip()
+    candidate = str(plain_password).encode("utf-8")
+
+    if is_bcrypt_hash(stored):
+        try:
+            return bcrypt.checkpw(candidate, stored.encode("utf-8")), False
+        except ValueError:
+            return False, False
+
+    # Legacy plaintext record: constant-time comparison, flag for upgrade
+    if not stored:
+        return False, False
+    is_valid = hmac.compare_digest(candidate, stored.encode("utf-8"))
+    return is_valid, is_valid
 
 def generate_secure_id(prefix=""):
     """

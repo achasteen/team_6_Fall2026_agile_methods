@@ -30,6 +30,8 @@ def render(conn):
     if st.button("Submit Registration"):
         if not reg_user_id or not reg_password:
             st.error("Please fill in both User ID and Password.")
+        elif len(reg_password.strip().encode("utf-8")) > utils.BCRYPT_MAX_BYTES:
+            st.error(f"Password is too long. Please use at most {utils.BCRYPT_MAX_BYTES} characters.")
         else:
             try:
                 user_existing_df = utils.fetch_worksheet_cached(conn, "Users")
@@ -43,7 +45,7 @@ def render(conn):
             else:
                 user_new_row = pd.DataFrame([{
                     "user_id": reg_user_id,
-                    "password": reg_password,
+                    "password": utils.hash_password(reg_password.strip()),
                     "role": role,
                     "first_name": first_name or role,
                     "last_name": last_name or "User",

@@ -1,4 +1,6 @@
 import html
+import time
+
 import streamlit as st
 
 # Muted pastel tones for status tags (background, text)
@@ -89,6 +91,72 @@ h2, h3 { letter-spacing: -0.02em; text-wrap: balance; color: #111111; }
     .steps { display: none; }
 }
 [class*="st-key-panel-"] { background: #FFFFFF; }
+
+/* Sidebar conversation list */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.25rem; }
+.dm-heading { font-weight: 600; font-size: 1rem; color: #111111; margin: 0 0 0.5rem; }
+[class*="st-key-dmrow-"] { position: relative; }
+[class*="st-key-dmrow-"] > [data-testid="stElementContainer"]:has([data-testid="stButton"]) {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+}
+[class*="st-key-dmrow-"] [data-testid="stButton"],
+[class*="st-key-dmrow-"] [data-testid="stButton"] button {
+    width: 100%;
+    height: 100%;
+}
+[class*="st-key-dmrow-"] [data-testid="stButton"] button { opacity: 0; cursor: pointer; }
+.dm-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    padding: 0.65rem 0.6rem;
+    border-radius: 8px;
+    transition: background-color 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+[class*="st-key-dmrow-"]:hover .dm-row { background: rgba(17, 17, 17, 0.04); }
+[class*="st-key-dmrow-"]:has(button:focus-visible) .dm-row { outline: 2px solid #111111; outline-offset: -2px; }
+
+/* "Messages" shortcut in the top bar opens the sidebar drawer; only needed on phones */
+.st-key-btn_mobile_messages { display: none; }
+@media (max-width: 768px) { .st-key-btn_mobile_messages { display: block; } }
+.dm-row.dm-open { background: #FFFFFF; box-shadow: inset 0 0 0 1px #EAEAEA; }
+.dm-avatar {
+    flex: none;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 10px;
+    background: #E6E5E1;
+    color: #2F3437;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.dm-main { flex: 1; min-width: 0; }
+.dm-top { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.dm-name, .dm-request, .dm-preview { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dm-name { font-weight: 600; font-size: 0.92rem; color: #111111; }
+.dm-time { flex: none; font-size: 0.75rem; color: #787774; }
+.dm-request { font-size: 0.78rem; color: #787774; }
+.dm-preview { font-size: 0.85rem; color: #5F6368; }
+.dm-has-unread .dm-preview { color: #111111; font-weight: 500; }
+.dm-unread {
+    flex: none;
+    align-self: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.35rem;
+    border-radius: 9999px;
+    background: #111111;
+    color: #FBFBFA;
+    font-size: 0.7rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
 
 /* Message thread */
 .msg { display: flex; flex-direction: column; margin: 0 0 0.9rem; }
@@ -198,7 +266,52 @@ def open_thread(request_id):
     Opens the message thread for a request. Applied by app.py on the next run.
     """
     st.session_state.pending_thread = str(request_id)
+    st.session_state.sidebar_action = "close"  # so the chat isn't hidden behind the drawer on phones
     st.rerun()
+
+
+def open_sidebar():
+    st.session_state.sidebar_action = "open"
+
+
+_SIDEBAR_SCRIPT = """
+<script>
+(() => {
+  if (window.innerWidth > 768) return;  // phones only; on desktop the sidebar is always shown
+  // Streamlit can run this script more than once; act only once per request
+  const runId = %s;
+  window.__sidebarActions = window.__sidebarActions || {};
+  if (window.__sidebarActions[runId]) return;
+  window.__sidebarActions[runId] = true;
+
+  const wantOpen = %s;
+  const selector = wantOpen
+    ? '[data-testid="stExpandSidebarButton"]'
+    : '[data-testid="stSidebarCollapseButton"] button';
+  const tryClick = (attempts) => {
+    const sidebar = document.querySelector('[data-testid="stSidebar"]');
+    if (sidebar && (sidebar.getAttribute("aria-expanded") === "true") === wantOpen) return;
+    const el = document.querySelector(selector);
+    if (el) el.click();
+    else if (attempts > 0) setTimeout(() => tryClick(attempts - 1), 100);
+  };
+  tryClick(20);
+})();
+</script>
+"""
+
+
+def apply_sidebar_action():
+    """
+    Opens or closes the sidebar drawer on phones when a view asked for it this run.
+    Streamlit has no API for this, so it clicks the sidebar's own toggle button.
+    """
+    action = st.session_state.pop("sidebar_action", None)
+    if action not in ("open", "close"):
+        return
+    # A fresh run id makes this a new element, so the script runs for this request
+    run_id = repr(f"{action}-{time.time()}")
+    st.html(_SIDEBAR_SCRIPT % (run_id, "true" if action == "open" else "false"), unsafe_allow_javascript=True)
 
 
 def close_thread():

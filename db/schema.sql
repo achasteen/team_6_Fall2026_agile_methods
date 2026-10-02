@@ -1,5 +1,5 @@
 -- Samaritan Services schema (Neon Postgres).
--- Safe to re-run: every statement is idempotent.
+-- The app applies this on startup (src/db.py), so every statement must be safe to re-run.
 
 CREATE TABLE IF NOT EXISTS users (
     user_id     text PRIMARY KEY,
@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS messages (
     sender_name   text NOT NULL DEFAULT '',
     recipient_id  text NOT NULL,
     body          text NOT NULL,
-    sent_at       timestamptz NOT NULL DEFAULT now()
+    sent_at       timestamptz NOT NULL DEFAULT now(),
+    read_at       timestamptz                -- set when the recipient opens the conversation
 );
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at timestamptz;
 CREATE INDEX IF NOT EXISTS messages_thread_idx ON messages (request_id, sent_at);
+CREATE INDEX IF NOT EXISTS messages_unread_idx ON messages (recipient_id) WHERE read_at IS NULL;

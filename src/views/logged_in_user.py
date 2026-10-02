@@ -74,7 +74,6 @@ def render_user_status(user_info):
     n_accepted = sum(1 for row in my_requests if row["status"] == "accepted")
     ui.meta(f"{n_pending} waiting for a Samaritan, {n_accepted} accepted.")
 
-    counts = messages.message_counts(my_requests) if n_accepted else {}
     user_id = str(user_info["user_id"]).strip()
 
     # Newest first
@@ -99,4 +98,4 @@ def render_user_status(user_info):
             partner = messages.thread_partner(row, user_id)
             if partner:
                 request_id = row['request_id']
-                messages.message_button(request_id, partner[1], counts.get(request_id, 0), key=f"msg_{request_id}")
+                messages.message_button(request_id, partner[1], key=f"msg_{request_id}")

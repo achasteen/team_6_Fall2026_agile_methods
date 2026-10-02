@@ -17,4 +17,3 @@ skills-lock.json
 .idea/
 .neon
 .env.local
-node_modules/

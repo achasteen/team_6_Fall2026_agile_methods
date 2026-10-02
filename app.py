@@ -13,6 +13,7 @@ st.set_page_config(
     page_title="Samaritan Services",
     page_icon=":material/volunteer_activism:",
     layout="wide",
+    initial_sidebar_state="auto",
 )
 ui.inject_styles()
 
@@ -40,7 +41,7 @@ def log_out():
     st.session_state.logged_in = False
     st.session_state.current_user = None
     st.session_state.pop("dashboard_view", None)
-    for key in ("pending_view", "last_view", "open_thread", "pending_thread"):
+    for key in ("pending_view", "last_view", "open_thread", "pending_thread", "sidebar_action"):
         st.session_state.pop(key, None)
 
 
@@ -53,6 +54,9 @@ if st.session_state.logged_in and st.session_state.current_user:
     is_samaritan = user_role == "Samaritan"
     views = SAMARITAN_VIEWS if is_samaritan else USER_VIEWS
 
+    if "pending_thread" in st.session_state:
+        st.session_state.open_thread = st.session_state.pop("pending_thread")
+
     # Top bar
     col_brand, col_account = st.columns([1, 1], vertical_alignment="center")
     with col_brand:
@@ -64,13 +68,19 @@ if st.session_state.logged_in and st.session_state.current_user:
                 f'<span class="meta">{ui.esc(full_name)}</span> '
                 + ui.tag("Samaritan" if is_samaritan else "Member", "blue" if is_samaritan else "gray")
             )
+            unread = messages.unread_total(user_info["user_id"], st.session_state.get("open_thread"))
+            st.button(
+                f"Messages ({unread})" if unread else "Messages", type="tertiary",
+                icon=":material/chat_bubble:", on_click=ui.open_sidebar, key="btn_mobile_messages",
+            )
             st.button("Log out", type="tertiary", icon=":material/logout:", on_click=log_out, key="btn_logout")
 
     st.space("medium")
 
-    # A request's message thread replaces the dashboard while it's open
-    if "pending_thread" in st.session_state:
-        st.session_state.open_thread = st.session_state.pop("pending_thread")
+    # Conversations live in the sidebar; an open one replaces the dashboard
+    with st.sidebar:
+        messages.render_sidebar(user_info, is_samaritan)
+    ui.apply_sidebar_action()
 
     if st.session_state.get("open_thread"):
         messages.render_thread(user_info, st.session_state.open_thread)

@@ -12,8 +12,7 @@ team_6_Fall2026_agile_methods/
 ├── requirements.txt                # Dependencies List
 ├── .gitignore                      # Prevent commit of secrets.toml
 ├── db/
-│   ├── schema.sql                  # Postgres tables (users, requests, notifications, messages)
-│   └── migrate_sheets_to_neon.py   # One-time copy of the old Google Sheets data into Neon
+│   └── schema.sql                  # Postgres tables (users, requests, notifications, messages)
 ├── src/
 │   ├── db.py                       # All database reads and writes (Neon Postgres)
 │   ├── utils.py                    # Helper Functions
@@ -21,9 +20,9 @@ team_6_Fall2026_agile_methods/
 │   └── views/                      # Independent screen modules
 │       ├── logged_in_samaritan.py  # Logged In Samaritan Views and Logic
 │       ├── logged_in_user.py       # Logged In User Views and Logic
-│       └── logged_out_login.py     # Login View and Logic
-│       └── logged_out_register.py  # Register View and Logic
-│       ├── messages.py             # Message Thread View and Logic
+│       ├── logged_out_login.py     # Login View and Logic
+│       ├── logged_out_register.py  # Register View and Logic
+│       ├── messages.py             # Messages sidebar and conversation View and Logic
 │       └── notifications.py        # Notification Inbox View and Logic
 ├── .streamlit/                     # config.toml (theme, committed) and secrets.toml (never committed)
 ```
@@ -40,17 +39,21 @@ The remaining files are reserved for specific views and logic. Hopefully this wi
 
 ## Messaging
 
-Once a Samaritan accepts a request, the requester and the Samaritan can message each other from the request card ("Message ..."). Only those two people can open the thread. An open thread checks for new messages every 15 seconds, and the recipient gets one notification per thread until they read it.
+Once a Samaritan accepts a request, the requester and the Samaritan get a private conversation about it. Only those two people can open it.
 
-Messages are stored in the `messages` table.
+- **Starting one:** use "Message ..." on an accepted request card. The conversation appears in the sidebar once the first message is sent.
+- **Sidebar inbox:** the left sidebar lists every conversation, newest first, with the other person, the request, the latest message and an unread count. On phones the sidebar is a drawer, opened with the "Messages" button in the top bar.
+- **Conversation:** clicking a conversation (or "Message ..." on a request card) opens it in the main area. Opening it marks its messages as read.
+- **Refresh:** the inbox and an open conversation check for new messages every 15 seconds.
+
+Messages are stored in the `messages` table; `read_at` is set when the recipient opens the conversation.
 
 ## Database
 
 The app uses a [Neon](https://neon.tech) Postgres database (project `lively-mouse-89614258`, branch `production`). It replaced the Google Sheet; the sheet is no longer read or written by the app. Browse or edit the data in the Neon console under **Tables**.
 
-- Tables are defined in `db/schema.sql`. To change the schema, edit that file (keep it re-runnable) and apply it in the Neon console's SQL editor.
+- Tables are defined in `db/schema.sql`, and the app applies that file automatically the first time it connects. A brand-new database sets itself up. To change the schema, edit that file and keep every statement re-runnable (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`).
 - Accepting a request is a single `UPDATE ... WHERE status = 'pending'`, so two Samaritans can't accept the same request.
-- `db/migrate_sheets_to_neon.py` copied the Google Sheets data into Neon. It's safe to re-run (existing rows are skipped) and only reads the sheet.
 - To try changes without touching real data, create a Neon branch (an instant copy of the database) and point your local `secrets.toml` at it.
 
 ## Repository Management
@@ -66,7 +69,12 @@ To enable the database features for local development, a secrets.toml file will 
 url = "postgresql+psycopg://<user>:<password>@<host>/neondb?sslmode=require"
 ```
 
-The necessary contents will be sent over chat. The deployed app needs the same `[connections.neon]` entry in its Streamlit Cloud secrets (App settings, then Secrets). `[connections.gsheets]` is only needed to re-run the Google Sheets migration.
+The necessary contents will be sent over chat. Use the "direct" (non-pooled) connection string from the Neon console and change the `postgresql://` prefix to `postgresql+psycopg://`.
+
+## Deployment (Streamlit Community Cloud)
+
+1. In the app's settings on share.streamlit.io, open **Secrets** and add the same `[connections.neon]` block as your local `secrets.toml`. The old `[connections.gsheets]` block is no longer used and can be removed.
+2. Deploy the branch. Streamlit Cloud installs `requirements.txt`, and the app creates or upgrades the database tables on first use.
 
 Please do NOT commit this `secrets.toml` file or share.
 

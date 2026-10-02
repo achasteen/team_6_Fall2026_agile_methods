@@ -140,8 +140,6 @@ def render_accepted_requests(user_info):
     count = len(my_accepted)
     ui.meta(f"You've accepted {count} request{'s' if count != 1 else ''}.")
 
-    counts = messages.message_counts(my_accepted)
-
     for row in my_accepted:
         request_id = row["request_id"]
         meta = (
@@ -153,4 +151,4 @@ def render_accepted_requests(user_info):
 
             partner = messages.thread_partner(row, user_id)
             if partner:
-                messages.message_button(request_id, partner[1], counts.get(request_id, 0), key=f"msg_{request_id}")
+                messages.message_button(request_id, partner[1], key=f"msg_{request_id}")

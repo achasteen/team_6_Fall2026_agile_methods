@@ -7,15 +7,31 @@ URL comes from .streamlit/secrets.toml:
     [connections.neon]
     url = "postgresql+psycopg://..."
 """
+from pathlib import Path
+
 import streamlit as st
 from sqlalchemy import text
 
 import src.utils as utils
 
 
+SCHEMA_PATH = Path(__file__).resolve().parent.parent / "db" / "schema.sql"
+
+
+@st.cache_resource
+def _ensure_schema(_db_engine):
+    # Runs once per server process; schema.sql is idempotent, so a fresh database sets itself up.
+    # (The leading underscore tells Streamlit not to hash the engine argument.)
+    with _db_engine.begin() as conn:
+        conn.exec_driver_sql(SCHEMA_PATH.read_text())
+    return True
+
+
 def _engine():
     # pool_pre_ping reconnects transparently after Neon suspends an idle database
-    return st.connection("neon", type="sql", pool_pre_ping=True, pool_recycle=300).engine
+    engine = st.connection("neon", type="sql", pool_pre_ping=True, pool_recycle=300).engine
+    _ensure_schema(engine)
+    return engine
 
 
 def _rows(conn, sql, **params):
@@ -151,6 +167,39 @@ def mark_notification_read(notif_id, user_id):
 # ---------------------------------------------------------
 # MESSAGES
 # ---------------------------------------------------------
+def conversations(user_id):
+    """
+    One row per conversation the user is part of (an accepted request with at least one
+    message), newest first, with the other person, the latest message and how many
+    messages the user hasn't read.
+    """
+    return _query("""
+        SELECT r.request_id, r.request_name,
+               CASE WHEN r.requested_by_id = :user_id THEN r.accepted_by_id ELSE r.requested_by_id END AS partner_id,
+               CASE WHEN r.requested_by_id = :user_id THEN r.accepted_by_name ELSE r.requested_by_name END AS partner_name,
+               last.body AS last_body, last.sender_id AS last_sender_id, last.sent_at AS last_sent_at,
+               (SELECT count(*) FROM messages m
+                WHERE m.request_id = r.request_id AND m.recipient_id = :user_id AND m.read_at IS NULL) AS unread
+        FROM requests r
+        JOIN LATERAL (
+            SELECT body, sender_id, sent_at FROM messages m
+            WHERE m.request_id = r.request_id
+            ORDER BY sent_at DESC, message_id DESC
+            LIMIT 1
+        ) last ON true
+        WHERE r.status = 'accepted' AND (r.requested_by_id = :user_id OR r.accepted_by_id = :user_id)
+        ORDER BY last.sent_at DESC
+    """, user_id=user_id)
+
+
+def unread_message_count(user_id, except_request_id=None):
+    return _query_one("""
+        SELECT count(*) AS n FROM messages
+        WHERE recipient_id = :user_id AND read_at IS NULL
+          AND request_id IS DISTINCT FROM :except_request_id
+    """, user_id=user_id, except_request_id=except_request_id)["n"]
+
+
 def thread_messages(request_id):
     return _query(
         "SELECT * FROM messages WHERE request_id = :request_id ORDER BY sent_at, message_id",
@@ -158,37 +207,18 @@ def thread_messages(request_id):
     )
 
 
-def message_counts(request_ids):
-    """
-    Returns {request_id: number of messages} for the given requests.
-    """
-    if not request_ids:
-        return {}
-    rows = _query("""
-        SELECT request_id, count(*) AS n FROM messages
-        WHERE request_id = ANY(:request_ids)
-        GROUP BY request_id
-    """, request_ids=list(request_ids))
-    return {row["request_id"]: row["n"] for row in rows}
+def mark_thread_read(request_id, user_id):
+    with _engine().begin() as conn:
+        conn.execute(text("""
+            UPDATE messages SET read_at = now()
+            WHERE request_id = :request_id AND recipient_id = :user_id AND read_at IS NULL
+        """), dict(request_id=request_id, user_id=user_id))
 
 
-def send_message(request_id, sender_id, sender_name, recipient_id, body, notification, notification_prefix):
-    """
-    Saves a message and notifies the recipient, unless they already have an unread
-    notification for this thread starting with notification_prefix. One transaction.
-    """
+def send_message(request_id, sender_id, sender_name, recipient_id, body):
     with _engine().begin() as conn:
         conn.execute(text("""
             INSERT INTO messages (message_id, request_id, sender_id, sender_name, recipient_id, body)
             VALUES (:message_id, :request_id, :sender_id, :sender_name, :recipient_id, :body)
         """), dict(message_id=utils.generate_secure_id("msg"), request_id=request_id,
                    sender_id=sender_id, sender_name=sender_name, recipient_id=recipient_id, body=body))
-
-        already_notified = conn.execute(text("""
-            SELECT 1 FROM notifications
-            WHERE recipient_id = :recipient_id AND request_id = :request_id
-              AND NOT is_read AND starts_with(message, :prefix)
-            LIMIT 1
-        """), dict(recipient_id=recipient_id, request_id=request_id, prefix=notification_prefix)).first()
-        if not already_notified:
-            _insert_notification(conn, recipient_id, notification, request_id)

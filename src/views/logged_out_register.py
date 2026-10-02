@@ -2,7 +2,7 @@ import re
 from datetime import date, datetime
 
 import streamlit as st
-import pandas as pd
+import src.db as db
 import src.ui as ui
 import src.utils as utils
 from src.views.logged_out_login import build_session_user
@@ -18,7 +18,7 @@ ROLE_CAPTIONS = [
 def _age_on(dob, today):
     return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
-def render(conn):
+def render():
     st.subheader("Create your account")
     ui.meta("This app is for educational purposes. Please don't enter sensitive information.")
 
@@ -99,41 +99,31 @@ def render(conn):
             st.error(err)
         return
 
+    new_user = {
+        "user_id": reg_user_id,
+        "role": role,
+        "first_name": first_name.strip(),
+        "last_name": last_name.strip(),
+        "zip": utils.clean_zip_display(zip_code),
+    }
+
     try:
         with st.spinner("Creating your account..."):
-            try:
-                user_existing_df = utils.fetch_worksheet_cached(conn, "Users", ttl=0)
-            except Exception:
-                user_existing_df = pd.DataFrame(columns=[
-                    "user_id", "password", "role", "first_name", "last_name", "city", "state", "zip", "services"
-                ])
-
-            if reg_user_id in user_existing_df["user_id"].astype(str).str.strip().values:
-                st.error(f"The User ID '{reg_user_id}' is taken. Try another one.")
-                return
-
-            new_user = {
-                "user_id": reg_user_id,
-                "password": utils.hash_password(password),
-                "role": role,
-                "first_name": first_name.strip(),
-                "last_name": last_name.strip(),
-                "city": city.strip(),
-                "state": state.strip().upper(),
-                "zip": utils.clean_zip_display(zip_code),
-                "services": services.strip()
-            }
-
-            user_updated_df = pd.concat([user_existing_df, pd.DataFrame([new_user])], ignore_index=True)
-
-            # Safe update with cache invalidation
-            utils.safe_update_worksheet(conn, "Users", user_updated_df)
+            created = db.create_user(
+                reg_user_id, utils.hash_password(password), role,
+                new_user["first_name"], new_user["last_name"], city.strip(),
+                state.strip().upper(), new_user["zip"], services.strip(),
+            )
     except Exception as e:
         utils.handle_db_error(e, "Could not create your account.")
         return
 
+    if not created:
+        st.error(f"The User ID '{reg_user_id}' is taken. Try another one.")
+        return
+
     # Log the new user straight in
     st.session_state.logged_in = True
-    st.session_state.current_user = build_session_user(reg_user_id, new_user)
+    st.session_state.current_user = build_session_user(new_user)
     ui.flash(f"Account created. Welcome, {new_user['first_name']}.")
     st.rerun()

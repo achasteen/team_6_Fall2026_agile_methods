@@ -91,6 +91,43 @@ def safe_update_worksheet(conn, worksheet_name, df):
     conn.update(worksheet=worksheet_name, data=clean_df)
     st.cache_data.clear()
 
+def _gspread_worksheet(conn, worksheet_name, columns):
+    """
+    Returns the underlying gspread worksheet, creating it with a header row if it doesn't exist.
+    Returns None when the connection doesn't expose a gspread client.
+    """
+    client = getattr(conn, "client", None)
+    if not hasattr(client, "_select_worksheet"):
+        return None
+
+    import gspread
+    try:
+        return client._select_worksheet(worksheet=worksheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        worksheet = client._open_spreadsheet().add_worksheet(title=worksheet_name, rows=1, cols=len(columns))
+        worksheet.append_row(columns, value_input_option="RAW")
+        return worksheet
+
+def append_row(conn, worksheet_name, row, columns):
+    """
+    Appends one row without rewriting the sheet, so concurrent writers can't
+    overwrite each other. Falls back to a read + full update if needed.
+    """
+    values = [sanitize_for_csv("" if pd.isna(row.get(col)) else str(row.get(col))) for col in columns]
+
+    worksheet = _gspread_worksheet(conn, worksheet_name, columns)
+    if worksheet is not None:
+        worksheet.append_row(values, value_input_option="RAW", table_range="A1")
+        st.cache_data.clear()
+        return
+
+    try:
+        existing_df = fetch_worksheet_cached(conn, worksheet_name, ttl=0)
+    except Exception:
+        existing_df = pd.DataFrame(columns=columns)
+    updated_df = pd.concat([existing_df, pd.DataFrame([dict(zip(columns, values))])], ignore_index=True)
+    safe_update_worksheet(conn, worksheet_name, updated_df)
+
 def handle_db_error(e, fallback_msg):
     """
     Renders user-friendly error messages for database and rate-limit errors.
@@ -213,31 +250,42 @@ def render_notification_inbox(user_id, conn):
         )
         for orig_idx, row in user_unread.iterrows():
             notif_id = row['notif_id'] if row['notif_id'] else f"row_{orig_idx}"
-            col_msg, col_btn = st.columns([4, 1], vertical_alignment="center")
+            is_message = str(row['message']).startswith("New message from")
+            request_id = str(row.get('request_id', '')).strip()
+            col_msg, col_btn = st.columns([3, 1], vertical_alignment="center")
 
             with col_msg:
                 ui.html_block(f'<p style="margin:0">{ui.esc(row["message"])}</p>')
 
             with col_btn:
-                if st.button("Mark read", type="tertiary", key=f"btn_mark_read_{notif_id}_{orig_idx}"):
-                    try:
-                        # Hide immediately on client side
-                        st.session_state.dismissed_notifs.add(notif_id)
+                with st.container(horizontal=True, horizontal_alignment="right", gap="small"):
+                    open_clicked = is_message and request_id and st.button(
+                        "Open", type="tertiary", key=f"btn_open_{notif_id}_{orig_idx}"
+                    )
+                    read_clicked = st.button("Mark read", type="tertiary", key=f"btn_mark_read_{notif_id}_{orig_idx}")
 
-                        # Explicitly ensure column is string-compatible before assignment
-                        notif_df['is_read'] = notif_df['is_read'].astype("object")
-                        notif_df.loc[orig_idx, 'is_read'] = 'TRUE'
+            if open_clicked or read_clicked:
+                try:
+                    # Hide immediately on client side
+                    st.session_state.dismissed_notifs.add(notif_id)
 
-                        # Drop temporary helper column before saving
-                        save_df = notif_df.drop(columns=['is_read_bool'])
+                    # Explicitly ensure column is string-compatible before assignment
+                    notif_df['is_read'] = notif_df['is_read'].astype("object")
+                    notif_df.loc[orig_idx, 'is_read'] = 'TRUE'
 
-                        # Convert to plain strings for Google Sheets (blank cells stay blank, not "nan")
-                        for col in save_df.columns:
-                            save_df[col] = save_df[col].fillna("").astype(str)
+                    # Drop temporary helper column before saving
+                    save_df = notif_df.drop(columns=['is_read_bool'])
 
-                        # Save back to Google Sheets & clear Streamlit cache
-                        safe_update_worksheet(conn, "Notifications", save_df)
-                        st.rerun()
-                    except Exception as e:
-                        handle_db_error(e, "Could not update notification status.")
+                    # Convert to plain strings for Google Sheets (blank cells stay blank, not "nan")
+                    for col in save_df.columns:
+                        save_df[col] = save_df[col].fillna("").astype(str)
+
+                    # Save back to Google Sheets & clear Streamlit cache
+                    safe_update_worksheet(conn, "Notifications", save_df)
+                except Exception as e:
+                    handle_db_error(e, "Could not update notification status.")
+                else:
+                    if open_clicked:
+                        ui.open_thread(request_id)
+                    st.rerun()
     st.space("small")

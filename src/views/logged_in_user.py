@@ -3,6 +3,7 @@ import re
 import streamlit as st
 import src.ui as ui
 import src.utils as utils
+import src.views.messages as messages
 import pandas as pd
 
 def render_new_request(user_info, conn):
@@ -93,6 +94,9 @@ def render_user_status(user_info, conn):
     n_accepted = int((statuses == "accepted").sum())
     ui.meta(f"{n_pending} waiting for a Samaritan, {n_accepted} accepted.")
 
+    counts = messages.message_counts(conn) if n_accepted else {}
+    user_id = str(user_info["user_id"]).strip()
+
     # Newest first (rows are appended as they're created)
     for idx, row in my_requests.iloc[::-1].iterrows():
         status = str(row.get('status', '')).strip().lower()
@@ -112,3 +116,8 @@ def render_user_status(user_info, conn):
 
         with st.container(border=True, key=f"card-req-{idx}"):
             ui.request_details(row.get('request_name', 'Request'), row.get('description', ''), meta, tags)
+
+            partner = messages.thread_partner(row.to_dict(), user_id)
+            if partner:
+                request_id = str(row.get('request_id'))
+                messages.message_button(request_id, partner[1], counts.get(request_id, 0), key=f"msg_{request_id}_{idx}")

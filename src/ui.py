@@ -12,11 +12,12 @@ TAG_TONES = {
 
 STYLES = """
 <style>
-.block-container {
+.block-container, [data-testid="stBottomBlockContainer"] {
     max-width: 1040px;
     padding-top: 2.5rem;
     padding-bottom: 6rem;
 }
+[data-testid="stBottomBlockContainer"] { padding-top: 1rem; padding-bottom: 2rem; }
 header[data-testid="stHeader"] { background: transparent; }
 
 /* Faint warm light behind the page so it never reads as flat */
@@ -88,6 +89,21 @@ h2, h3 { letter-spacing: -0.02em; text-wrap: balance; color: #111111; }
     .steps { display: none; }
 }
 [class*="st-key-panel-"] { background: #FFFFFF; }
+
+/* Message thread */
+.msg { display: flex; flex-direction: column; margin: 0 0 0.9rem; }
+.msg-mine { align-items: flex-end; }
+.msg-theirs { align-items: flex-start; }
+.msg-bubble {
+    max-width: min(32rem, 85%);
+    padding: 0.6rem 0.9rem;
+    border-radius: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+.msg-mine .msg-bubble { background: #111111; color: #FBFBFA; border-bottom-right-radius: 4px; }
+.msg-theirs .msg-bubble { background: #FFFFFF; color: #2F3437; border: 1px solid #EAEAEA; border-bottom-left-radius: 4px; }
+.msg-meta { color: #787774; font-size: 0.75rem; margin-top: 0.25rem; }
 
 .stButton button, .stFormSubmitButton button {
     transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1), background-color 200ms ease;
@@ -175,6 +191,18 @@ def show_flash():
     if "flash" in st.session_state:
         message, icon = st.session_state.pop("flash")
         st.toast(message, icon=icon)
+
+
+def open_thread(request_id):
+    """
+    Opens the message thread for a request. Applied by app.py on the next run.
+    """
+    st.session_state.pending_thread = str(request_id)
+    st.rerun()
+
+
+def close_thread():
+    st.session_state.pop("open_thread", None)
 
 
 def go_to(view):

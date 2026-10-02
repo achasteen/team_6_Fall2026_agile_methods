@@ -19,6 +19,7 @@ team_6_Fall2026_agile_methods/
 │       ├── logged_in_user.py       # Logged In User Views and Logic
 │       └── logged_out_login.py     # Login View and Logic
 │       └── logged_out_register.py  # Register View and Logic
+│       └── messages.py             # Message Thread View and Logic
 ├── .streamlit/                     # config.toml (theme, committed) and secrets.toml (never committed)
 ```
 
@@ -29,6 +30,12 @@ team_6_Fall2026_agile_methods/
 `utils.py` is for helper functions that may be used across views
 
 The remaining files are reserved for specific views and logic. Hopefully this will make the code easier to maintain, extend and concurrently modify
+
+## Messaging
+
+Once a Samaritan accepts a request, the requester and the Samaritan can message each other from the request card ("Message ..."). Only those two people can open the thread. An open thread checks for new messages every 15 seconds, and the recipient gets one notification per thread until they read it.
+
+Messages are stored in a `Messages` worksheet with columns `message_id, request_id, sender_id, sender_name, recipient_id, body, sent_at`. The app creates this tab automatically the first time someone sends a message. New messages are appended as single rows (`utils.append_row`) rather than rewriting the sheet, so two people sending at once can't overwrite each other.
 
 ## Repository Management
 

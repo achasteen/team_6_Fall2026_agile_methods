@@ -7,6 +7,7 @@ import src.views.logged_in_samaritan as logged_in_samaritan
 import src.views.logged_in_user as logged_in_user
 import src.views.logged_out_login as logged_out_login
 import src.views.logged_out_register as logged_out_register
+import src.views.messages as messages
 
 # 1. Page Configuration
 st.set_page_config(
@@ -43,7 +44,8 @@ def log_out():
     st.session_state.logged_in = False
     st.session_state.current_user = None
     st.session_state.pop("dashboard_view", None)
-    st.session_state.pop("pending_view", None)
+    for key in ("pending_view", "last_view", "open_thread", "pending_thread"):
+        st.session_state.pop(key, None)
 
 
 # ---------------------------------------------------------
@@ -70,6 +72,14 @@ if st.session_state.logged_in and st.session_state.current_user:
 
     st.space("medium")
 
+    # A request's message thread replaces the dashboard while it's open
+    if "pending_thread" in st.session_state:
+        st.session_state.open_thread = st.session_state.pop("pending_thread")
+
+    if st.session_state.get("open_thread"):
+        messages.render_thread(user_info, conn, st.session_state.open_thread)
+        st.stop()
+
     # Greeting
     st.title(f"Good to see you, {user_info.get('first_name', '')}.")
     if is_samaritan:
@@ -82,11 +92,13 @@ if st.session_state.logged_in and st.session_state.current_user:
     # Unread notifications (only shown when there is something to read)
     utils.render_notification_inbox(user_info["user_id"], conn)
 
-    # View Router: apply navigation requested by a view, then fall back to the role's default
+    # View Router: apply navigation requested by a view, then fall back to the last
+    # tab used (the nav widget's state is dropped while a thread is open), then the role's default
     if "pending_view" in st.session_state:
         st.session_state.dashboard_view = st.session_state.pop("pending_view")
     if st.session_state.get("dashboard_view") not in views:
-        st.session_state.dashboard_view = next(iter(views))
+        last_view = st.session_state.get("last_view")
+        st.session_state.dashboard_view = last_view if last_view in views else next(iter(views))
 
     st.segmented_control(
         "Navigation",
@@ -99,6 +111,7 @@ if st.session_state.logged_in and st.session_state.current_user:
     st.space("small")
 
     view = st.session_state.dashboard_view
+    st.session_state.last_view = view
 
     if view == "sam_find_requests":
         logged_in_samaritan.render_find_requests(user_info, conn)

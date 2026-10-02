@@ -1,6 +1,7 @@
 import streamlit as st
 import src.ui as ui
 import src.utils as utils
+import src.views.messages as messages
 import pandas as pd
 import math
 from functools import lru_cache
@@ -185,6 +186,9 @@ def render_accepted_requests(user_info, conn):
     count = len(my_accepted)
     ui.meta(f"You've accepted {count} request{'s' if count != 1 else ''}.")
 
+    counts = messages.message_counts(conn)
+    user_id = str(user_info.get("user_id", "")).strip()
+
     for idx, row in my_accepted.iloc[::-1].iterrows():
         requester = row.get('requested_by_name', row.get('requested_by', 'A neighbor'))
         requester = requester if pd.notna(requester) and str(requester).strip() else "A neighbor"
@@ -194,3 +198,8 @@ def render_accepted_requests(user_info, conn):
         )
         with st.container(border=True, key=f"card-accepted-{idx}"):
             ui.request_details(row.get('request_name', 'Request'), row.get('description', ''), meta, ui.tag("In progress", "green"))
+
+            partner = messages.thread_partner(row.to_dict(), user_id)
+            if partner:
+                request_id = str(row.get('request_id'))
+                messages.message_button(request_id, partner[1], counts.get(request_id, 0), key=f"msg_{request_id}_{idx}")

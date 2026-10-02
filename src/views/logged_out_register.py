@@ -1,62 +1,139 @@
+import re
+from datetime import date, datetime
+
 import streamlit as st
-import src.utils as utils
 import pandas as pd
+import src.ui as ui
+import src.utils as utils
+from src.views.logged_out_login import build_session_user
+
+MIN_AGE = 18
+
+ROLE_LABELS = {"User": "Get help", "Samaritan": "Offer help"}
+ROLE_CAPTIONS = [
+    "Post requests for things you need a hand with.",
+    "Browse requests near you and accept the ones you can take on.",
+]
+
+def _age_on(dob, today):
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 def render(conn):
-    st.subheader("Account Registration")
-    st.caption("Please fill out the information below to create your profile.")
-    st.caption("Warning: This is an app for educational purposes, please do not input any sensitive information.")
+    st.subheader("Create your account")
+    ui.meta("This app is for educational purposes. Please don't enter sensitive information.")
 
-    role = st.selectbox("I am registering as a:", options=["User", "Samaritan"], key="account_role")
+    role = st.radio(
+        "I'm signing up to",
+        options=["User", "Samaritan"],
+        format_func=lambda r: ROLE_LABELS[r],
+        captions=ROLE_CAPTIONS,
+        key="account_role",
+    )
 
-    reg_user_id = st.text_input("User ID", key="reg_user_id")
-    reg_password = st.text_input("Password", type="password", key="reg_password")
+    with st.form("register_form", border=False):
+        reg_user_id = st.text_input("User ID", key="reg_user_id", help="You'll use this to log in.")
+        reg_password = st.text_input(
+            "Password", type="password", key="reg_password",
+            help=f"Up to {utils.BCRYPT_MAX_BYTES} characters.",
+        )
+        reg_password_confirm = st.text_input("Confirm password", type="password", key="reg_password_confirm")
 
-    first_name = st.text_input("First Name", key="reg_first")
-    last_name = st.text_input("Last Name", key="reg_last")
+        col_first, col_last = st.columns(2)
+        with col_first:
+            first_name = st.text_input("First name", key="reg_first")
+        with col_last:
+            last_name = st.text_input("Last name", key="reg_last")
 
-    dob_str = utils.render_dob_selector("reg_dob")
+        st.caption("Date of birth")
+        dob_str = utils.render_dob_selector("reg_dob")
 
-    city = st.text_input("City", key="reg_city")
-    state = st.text_input("State", key="reg_state")
-    zip_code = st.text_input("Zip Code", key="reg_zip")
-    age = st.number_input("Age", min_value=18, max_value=120, key="reg_age")
+        col_city, col_state, col_zip = st.columns([2, 1, 1])
+        with col_city:
+            city = st.text_input("City", key="reg_city")
+        with col_state:
+            state = st.text_input("State", key="reg_state", max_chars=2, placeholder="PA")
+        with col_zip:
+            zip_code = st.text_input("Zip code", key="reg_zip", max_chars=5)
 
-    if role == "Samaritan":
-        services = st.text_area("Services you would like to offer", key="reg_services")
-    else:
-        services = ""
-
-    if st.button("Submit Registration"):
-        if not reg_user_id or not reg_password:
-            st.error("Please fill in both User ID and Password.")
-        elif len(reg_password.strip().encode("utf-8")) > utils.BCRYPT_MAX_BYTES:
-            st.error(f"Password is too long. Please use at most {utils.BCRYPT_MAX_BYTES} characters.")
+        if role == "Samaritan":
+            services = st.text_area(
+                "Services you'd like to offer", key="reg_services",
+                placeholder="Grocery runs, yard work, rides to appointments",
+            )
         else:
+            services = ""
+
+        submitted = st.form_submit_button(
+            "Create account", type="primary", width="stretch"
+        )
+
+    if not submitted:
+        return
+
+    reg_user_id = reg_user_id.strip()
+    password = reg_password.strip()
+
+    errors = []
+    if not reg_user_id:
+        errors.append("Choose a User ID.")
+    if not password:
+        errors.append("Choose a password.")
+    elif len(password.encode("utf-8")) > utils.BCRYPT_MAX_BYTES:
+        errors.append(f"Password is too long. Use at most {utils.BCRYPT_MAX_BYTES} characters.")
+    elif password != reg_password_confirm.strip():
+        errors.append("The passwords don't match.")
+    if not first_name.strip() or not last_name.strip():
+        errors.append("Enter your first and last name.")
+    if not re.fullmatch(r"\d{5}", zip_code.strip()):
+        errors.append("Enter a 5-digit zip code. It's used to match requests with nearby Samaritans.")
+
+    try:
+        dob = datetime.strptime(dob_str, "%Y-%m-%d").date()
+        if _age_on(dob, date.today()) < MIN_AGE:
+            errors.append(f"You need to be at least {MIN_AGE} to sign up.")
+    except ValueError:
+        errors.append("That date of birth doesn't exist. Check the day and month.")
+
+    if errors:
+        for err in errors:
+            st.error(err)
+        return
+
+    try:
+        with st.spinner("Creating your account..."):
             try:
-                user_existing_df = utils.fetch_worksheet_cached(conn, "Users")
+                user_existing_df = utils.fetch_worksheet_cached(conn, "Users", ttl=0)
             except Exception:
                 user_existing_df = pd.DataFrame(columns=[
                     "user_id", "password", "role", "first_name", "last_name", "city", "state", "zip", "services"
                 ])
 
-            if reg_user_id in user_existing_df["user_id"].astype(str).values:
-                st.error(f"User ID '{reg_user_id}' is already taken. Please choose another one.")
-            else:
-                user_new_row = pd.DataFrame([{
-                    "user_id": reg_user_id,
-                    "password": utils.hash_password(reg_password.strip()),
-                    "role": role,
-                    "first_name": first_name or role,
-                    "last_name": last_name or "User",
-                    "city": city,
-                    "state": state,
-                    "zip": utils.clean_zip_display(zip_code),
-                    "services": services
-                }])
+            if reg_user_id in user_existing_df["user_id"].astype(str).str.strip().values:
+                st.error(f"The User ID '{reg_user_id}' is taken. Try another one.")
+                return
 
-                user_updated_df = pd.concat([user_existing_df, user_new_row], ignore_index=True)
-                
-                # Safe update with automated retries and cache invalidation
-                utils.safe_update_worksheet(conn, "Users", user_updated_df)
-                st.success(f"Registered successfully as {role}! You can now log in.")
+            new_user = {
+                "user_id": reg_user_id,
+                "password": utils.hash_password(password),
+                "role": role,
+                "first_name": first_name.strip(),
+                "last_name": last_name.strip(),
+                "city": city.strip(),
+                "state": state.strip().upper(),
+                "zip": utils.clean_zip_display(zip_code),
+                "services": services.strip()
+            }
+
+            user_updated_df = pd.concat([user_existing_df, pd.DataFrame([new_user])], ignore_index=True)
+
+            # Safe update with cache invalidation
+            utils.safe_update_worksheet(conn, "Users", user_updated_df)
+    except Exception as e:
+        utils.handle_db_error(e, "Could not create your account.")
+        return
+
+    # Log the new user straight in
+    st.session_state.logged_in = True
+    st.session_state.current_user = build_session_user(reg_user_id, new_user)
+    ui.flash(f"Account created. Welcome, {new_user['first_name']}.")
+    st.rerun()

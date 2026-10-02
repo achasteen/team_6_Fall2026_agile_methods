@@ -6,6 +6,8 @@ import hmac
 import bcrypt
 from datetime import datetime
 
+import src.ui as ui
+
 # bcrypt only uses the first 72 bytes of input; longer passwords are rejected
 BCRYPT_MAX_BYTES = 72
 BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$")
@@ -95,7 +97,7 @@ def handle_db_error(e, fallback_msg):
     """
     err_str = str(e)
     if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "RATE_LIMIT_EXHAUSTED" in err_str:
-        st.warning("⚠️ **Database is busy.** High traffic detected—please wait a few seconds and try again.")
+        st.warning("The database is busy right now. Wait a few seconds and try again.", icon=":material/hourglass_top:")
     else:
         st.error(f"{fallback_msg} Please try again in a moment.")
         st.caption(f"Details: {err_str[:120]}...")  # Truncates long raw traces
@@ -147,17 +149,13 @@ def render_notification_inbox(user_id, conn):
     """
     Renders unread notifications specifically for user_id and updates Google Sheets directly.
     """
-    st.write("### Notifications")
-
     try:
         # Read live data from Google Sheets without caching
         notif_df = conn.read(worksheet="Notifications", ttl=0)
-    except Exception as e:
-        st.caption("No notifications system found or failed to load.")
+    except Exception:
         return
 
     if notif_df is None or notif_df.empty:
-        st.info("No new notifications.")
         return
 
     # 1. Normalize column headers
@@ -205,17 +203,23 @@ def render_notification_inbox(user_id, conn):
     user_unread = notif_df[unread_mask]
 
     if user_unread.empty:
-        st.info("No unread notifications.")
-    else:
+        return
+
+    count = len(user_unread)
+    with st.container(border=True, key="panel-notifications"):
+        ui.html_block(
+            '<p class="card-title" style="margin:0 0 0.25rem">Updates '
+            f'{ui.tag(f"{count} new", "blue")}</p>'
+        )
         for orig_idx, row in user_unread.iterrows():
-            col_msg, col_btn = st.columns([3.5, 1.2])
             notif_id = row['notif_id'] if row['notif_id'] else f"row_{orig_idx}"
-            
+            col_msg, col_btn = st.columns([4, 1], vertical_alignment="center")
+
             with col_msg:
-                st.info(f"📩 {row['message']}")
-                
+                ui.html_block(f'<p style="margin:0">{ui.esc(row["message"])}</p>')
+
             with col_btn:
-                if st.button("Mark as Read", key=f"btn_mark_read_{notif_id}_{orig_idx}"):
+                if st.button("Mark read", type="tertiary", key=f"btn_mark_read_{notif_id}_{orig_idx}"):
                     try:
                         # Hide immediately on client side
                         st.session_state.dismissed_notifs.add(notif_id)
@@ -227,14 +231,13 @@ def render_notification_inbox(user_id, conn):
                         # Drop temporary helper column before saving
                         save_df = notif_df.drop(columns=['is_read_bool'])
 
-                        # Convert object columns to standard string types for Google Sheets
+                        # Convert to plain strings for Google Sheets (blank cells stay blank, not "nan")
                         for col in save_df.columns:
-                            save_df[col] = save_df[col].astype(str)
+                            save_df[col] = save_df[col].fillna("").astype(str)
 
                         # Save back to Google Sheets & clear Streamlit cache
                         safe_update_worksheet(conn, "Notifications", save_df)
-                        
-                        st.success("Marked as read!")
                         st.rerun()
                     except Exception as e:
                         handle_db_error(e, "Could not update notification status.")
+    st.space("small")

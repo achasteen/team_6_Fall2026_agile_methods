@@ -13,13 +13,16 @@ team_6_Fall2026_agile_methods/
 ├── .gitignore                      # Prevent commit of secrets.toml
 ├── src/
 │   ├── utils.py                    # Helper Functions
+│   ├── ui.py                       # Shared styling and UI helpers (CSS, tags, cards, navigation)
 │   └── views/                      # Independent screen modules
 │       ├── logged_in_samaritan.py  # Logged In Samaritan Views and Logic
 │       ├── logged_in_user.py       # Logged In User Views and Logic
 │       └── logged_out_login.py     # Login View and Logic
 │       └── logged_out_register.py  # Register View and Logic
-├── .streamlit/                     # Folder for secrets.toml
+├── .streamlit/                     # config.toml (theme, committed) and secrets.toml (never committed)
 ```
+
+`ui.py` holds the visual system: fonts and colors live in `.streamlit/config.toml`, extra CSS and small render helpers live in `ui.py`. Render user-entered text through `ui.esc()` when it goes inside HTML. To switch dashboard views from a view, call `ui.go_to("<view_id>")`.
 
 `app.py` is reserved for `session_state` management and overall flow for when views are presented. It is NOT a place to render views and logic
 

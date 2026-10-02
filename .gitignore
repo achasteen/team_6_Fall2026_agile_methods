@@ -1,1 +1,17 @@
 .streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local AI agent skills (installed per developer with `npx skills add`)
+.agents/
+.claude/
+skills-lock.json
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

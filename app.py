@@ -1,13 +1,12 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 
 import src.ui as ui
-import src.utils as utils
 import src.views.logged_in_samaritan as logged_in_samaritan
 import src.views.logged_in_user as logged_in_user
 import src.views.logged_out_login as logged_out_login
 import src.views.logged_out_register as logged_out_register
 import src.views.messages as messages
+import src.views.notifications as notifications
 
 # 1. Page Configuration
 st.set_page_config(
@@ -17,10 +16,7 @@ st.set_page_config(
 )
 ui.inject_styles()
 
-# 2. Establish Google Sheets Connection
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-# 3. Session State Initialization
+# 2. Session State Initialization
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -77,7 +73,7 @@ if st.session_state.logged_in and st.session_state.current_user:
         st.session_state.open_thread = st.session_state.pop("pending_thread")
 
     if st.session_state.get("open_thread"):
-        messages.render_thread(user_info, conn, st.session_state.open_thread)
+        messages.render_thread(user_info, st.session_state.open_thread)
         st.stop()
 
     # Greeting
@@ -90,7 +86,7 @@ if st.session_state.logged_in and st.session_state.current_user:
     st.space("small")
 
     # Unread notifications (only shown when there is something to read)
-    utils.render_notification_inbox(user_info["user_id"], conn)
+    notifications.render_inbox(user_info["user_id"])
 
     # View Router: apply navigation requested by a view, then fall back to the last
     # tab used (the nav widget's state is dropped while a thread is open), then the role's default
@@ -114,13 +110,13 @@ if st.session_state.logged_in and st.session_state.current_user:
     st.session_state.last_view = view
 
     if view == "sam_find_requests":
-        logged_in_samaritan.render_find_requests(user_info, conn)
+        logged_in_samaritan.render_find_requests(user_info)
     elif view == "sam_my_accepted":
-        logged_in_samaritan.render_accepted_requests(user_info, conn)
+        logged_in_samaritan.render_accepted_requests(user_info)
     elif view == "new_request":
-        logged_in_user.render_new_request(user_info, conn)
+        logged_in_user.render_new_request(user_info)
     else:
-        logged_in_user.render_user_status(user_info, conn)
+        logged_in_user.render_user_status(user_info)
 
 # ---------------------------------------------------------
 # LOGGED OUT FLOW
@@ -156,6 +152,6 @@ else:
             )
 
             if auth_mode == "register":
-                logged_out_register.render(conn)
+                logged_out_register.render()
             else:
-                logged_out_login.render(conn)
+                logged_out_login.render()

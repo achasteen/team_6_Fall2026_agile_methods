@@ -15,3 +15,6 @@ skills-lock.json
 .DS_Store
 .vscode/
 .idea/
+.neon
+.env.local
+node_modules/

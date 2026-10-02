@@ -11,7 +11,11 @@ team_6_Fall2026_agile_methods/
 ├── app.py                          # Main Entry Point
 ├── requirements.txt                # Dependencies List
 ├── .gitignore                      # Prevent commit of secrets.toml
+├── db/
+│   ├── schema.sql                  # Postgres tables (users, requests, notifications, messages)
+│   └── migrate_sheets_to_neon.py   # One-time copy of the old Google Sheets data into Neon
 ├── src/
+│   ├── db.py                       # All database reads and writes (Neon Postgres)
 │   ├── utils.py                    # Helper Functions
 │   ├── ui.py                       # Shared styling and UI helpers (CSS, tags, cards, navigation)
 │   └── views/                      # Independent screen modules
@@ -19,7 +23,8 @@ team_6_Fall2026_agile_methods/
 │       ├── logged_in_user.py       # Logged In User Views and Logic
 │       └── logged_out_login.py     # Login View and Logic
 │       └── logged_out_register.py  # Register View and Logic
-│       └── messages.py             # Message Thread View and Logic
+│       ├── messages.py             # Message Thread View and Logic
+│       └── notifications.py        # Notification Inbox View and Logic
 ├── .streamlit/                     # config.toml (theme, committed) and secrets.toml (never committed)
 ```
 
@@ -29,13 +34,24 @@ team_6_Fall2026_agile_methods/
 
 `utils.py` is for helper functions that may be used across views
 
+`db.py` is the only place that talks to the database. Views call its functions (`db.get_user`, `db.accept_request`, ...) rather than writing SQL themselves
+
 The remaining files are reserved for specific views and logic. Hopefully this will make the code easier to maintain, extend and concurrently modify
 
 ## Messaging
 
 Once a Samaritan accepts a request, the requester and the Samaritan can message each other from the request card ("Message ..."). Only those two people can open the thread. An open thread checks for new messages every 15 seconds, and the recipient gets one notification per thread until they read it.
 
-Messages are stored in a `Messages` worksheet with columns `message_id, request_id, sender_id, sender_name, recipient_id, body, sent_at`. The app creates this tab automatically the first time someone sends a message. New messages are appended as single rows (`utils.append_row`) rather than rewriting the sheet, so two people sending at once can't overwrite each other.
+Messages are stored in the `messages` table.
+
+## Database
+
+The app uses a [Neon](https://neon.tech) Postgres database (project `lively-mouse-89614258`, branch `production`). It replaced the Google Sheet; the sheet is no longer read or written by the app. Browse or edit the data in the Neon console under **Tables**.
+
+- Tables are defined in `db/schema.sql`. To change the schema, edit that file (keep it re-runnable) and apply it in the Neon console's SQL editor.
+- Accepting a request is a single `UPDATE ... WHERE status = 'pending'`, so two Samaritans can't accept the same request.
+- `db/migrate_sheets_to_neon.py` copied the Google Sheets data into Neon. It's safe to re-run (existing rows are skipped) and only reads the sheet.
+- To try changes without touching real data, create a Neon branch (an instant copy of the database) and point your local `secrets.toml` at it.
 
 ## Repository Management
 
@@ -43,9 +59,14 @@ For new features, please create a branch, develop the feature and submit a pull 
 
 ## Secrets Management
 
-To enable the database features for local development, a secrets.toml file will need to be created in the `.streamlit` folder on your local
+To enable the database features for local development, a secrets.toml file will need to be created in the `.streamlit` folder on your local:
 
-The necessary contents will be sent over chat.
+```toml
+[connections.neon]
+url = "postgresql+psycopg://<user>:<password>@<host>/neondb?sslmode=require"
+```
+
+The necessary contents will be sent over chat. The deployed app needs the same `[connections.neon]` entry in its Streamlit Cloud secrets (App settings, then Secrets). `[connections.gsheets]` is only needed to re-run the Google Sheets migration.
 
 Please do NOT commit this `secrets.toml` file or share.
 

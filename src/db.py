@@ -98,6 +98,17 @@ def create_request(name, description, zip_code, requester_id, requester_name):
         """), dict(request_id=utils.generate_secure_id(), name=name, description=description,
                    zip=zip_code, requester_id=requester_id, requester_name=requester_name))
 
+def get_request_for_user(request_id, user_id):
+    return _query_one("""
+        SELECT *
+        FROM requests
+        WHERE request_id = :request_id
+          AND status = 'accepted'
+          AND (
+              requested_by_id = :user_id
+              OR accepted_by_id = :user_id
+          )
+    """, request_id=request_id, user_id=user_id)
 
 def get_request(request_id):
     return _query_one("SELECT * FROM requests WHERE request_id = :request_id", request_id=request_id)
@@ -206,12 +217,32 @@ def thread_messages(request_id):
         request_id=request_id,
     )
 
+def thread_messages_for_user(request_id, user_id):
+    return _query("""
+        SELECT m.*
+        FROM messages m
+        JOIN requests r ON r.request_id = m.request_id
+        WHERE m.request_id = :request_id
+          AND r.status = 'accepted'
+          AND (
+              r.requested_by_id = :user_id
+              OR r.accepted_by_id = :user_id
+          )
+        ORDER BY m.sent_at, m.message_id
+    """, request_id=request_id, user_id=user_id)
 
 def mark_thread_read(request_id, user_id):
     with _engine().begin() as conn:
         conn.execute(text("""
-            UPDATE messages SET read_at = now()
-            WHERE request_id = :request_id AND recipient_id = :user_id AND read_at IS NULL
+            UPDATE messages m
+            SET read_at = now()
+            FROM requests r
+            WHERE m.request_id = :request_id
+              AND m.request_id = r.request_id
+              AND m.recipient_id = :user_id
+              AND r.status = 'accepted'
+              AND (r.requested_by_id = :user_id OR r.accepted_by_id = :user_id)
+              AND m.read_at IS NULL
         """), dict(request_id=request_id, user_id=user_id))
 
 
@@ -219,6 +250,18 @@ def send_message(request_id, sender_id, sender_name, recipient_id, body):
     with _engine().begin() as conn:
         conn.execute(text("""
             INSERT INTO messages (message_id, request_id, sender_id, sender_name, recipient_id, body)
-            VALUES (:message_id, :request_id, :sender_id, :sender_name, :recipient_id, :body)
+            SELECT :message_id, :request_id, :sender_id, :sender_name, :recipient_id, :body
+            WHERE EXISTS (
+                SELECT 1
+                FROM requests r
+                WHERE r.request_id = :request_id
+                  AND r.status = 'accepted'
+                  AND (
+                      r.requested_by_id = :sender_id
+                      OR r.accepted_by_id = :sender_id
+                  )
+                  AND r.requested_by_id = :recipient_id
+                  OR r.accepted_by_id = :recipient_id
+            )
         """), dict(message_id=utils.generate_secure_id("msg"), request_id=request_id,
                    sender_id=sender_id, sender_name=sender_name, recipient_id=recipient_id, body=body))

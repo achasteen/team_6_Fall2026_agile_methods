@@ -167,7 +167,7 @@ def render_thread(user_info, request_id):
     st.button("Close", icon=":material/close:", type="tertiary", on_click=ui.close_thread, key="btn_thread_back")
 
     try:
-        request_row = db.get_request(request_id)
+        request_row = db.get_request_for_user(request_id, user_id)
     except Exception as e:
         utils.handle_db_error(e, "Could not load this conversation.")
         return
@@ -193,7 +193,7 @@ def render_thread(user_info, request_id):
     @st.fragment(run_every=REFRESH_SECONDS)
     def _thread_messages():
         try:
-            thread = db.thread_messages(request_id)
+            thread = db.thread_messages_for_user(request_id, user_id)
             if any(m["recipient_id"] == user_id and m["read_at"] is None for m in thread):
                 db.mark_thread_read(request_id, user_id)
         except Exception as e:

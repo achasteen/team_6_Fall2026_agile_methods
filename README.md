@@ -1,5 +1,6 @@
 # Samaritan Network App
 
+# App decommissioned at the conclusion of class
 
 ## Link to App
 Link to the deployed app: https://team6fall2026agilemethodsgit-qkixjx24bvbybsau9s9pey.streamlit.app
